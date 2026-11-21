@@ -1,24 +1,83 @@
 
-name: Test Garmin HTTPS
+name: Test Garmin Authentication
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
-      - name: Verifica HTTPS Garmin
+      - name: Verifica API Key
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+        shell: bash
         run: |
-          echo "Test Garmin Connect"
-          curl -sS -o /dev/null \
-            -w "HTTP: %{http_code}\n" \
-            --max-time 20 \
-            https://connect.garmin.com/
+          set -euo pipefail
 
-          echo "Test Garmin Personal API"
-          curl -sS -o /dev/null \
-            -w "HTTP: %{http_code}\n" \
-            --max-time 20 \
-            https://personal.connectapi.garmin.com/
+          if [ -z "$GARMIN_PERSONAL_API_KEY" ]; then
+            echo "ERRORE: secret Garmin non configurato."
+            exit 1
+          fi
+
+          echo "Secret Garmin presente."
+
+      - name: Autenticazione Garmin
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TOKEN_ENDPOINT="https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token"
+
+          HTTP_CODE=$(curl --silent --show-error \
+            --max-time 30 \
+            --output /tmp/garmin-token-response \
+            --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: ApiKey ${GARMIN_PERSONAL_API_KEY}" \
+            --header "Accept: */*" \
+            "$TOKEN_ENDPOINT")
+
+          echo "HTTP autenticazione: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Autenticazione Garmin non riuscita."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import json
+
+          token = Path("/tmp/garmin-token-response").read_text().strip()
+          parts = token.split(".")
+
+          if len(parts) != 3:
+              raise SystemExit("Risposta non riconosciuta come JWT.")
+
+          payload = parts[1] + "=" * (-len(parts[1]) % 4)
+
+          try:
+              claims = json.loads(
+                  base64.urlsafe_b64decode(payload)
+              )
+          except (ValueError, UnicodeError) as exc:
+              raise SystemExit("Payload JWT non valido.") from exc
+
+          if "exp" not in claims:
+              raise SystemExit("JWT senza scadenza.")
+
+          print("SUCCESSO: Garmin ha restituito un JWT.")
+          print("Scadenza del token presente.")
+          print("Nessuna credenziale mostrata.")
+          PY
+
+          rm -f /tmp/garmin-token-response
