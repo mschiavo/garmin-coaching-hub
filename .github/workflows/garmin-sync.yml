@@ -1,0 +1,54 @@
+
+name: Garmin Supabase Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Numero di giorni da sincronizzare"
+        required: true
+        default: "3"
+        type: choice
+        options:
+          - "3"
+          - "7"
+          - "14"
+          - "31"
+
+  schedule:
+    - cron: "17 */3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garmin-supabase-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installa le librerie
+        run: |
+          python -m pip install \
+            garmin-connect-personal-api-python==1.1.0 \
+            "psycopg[binary]>=3.2,<4"
+
+      - name: Sincronizza Garmin con Supabase
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SYNC_DAYS: ${{ inputs.days || '3' }}
+        run: |
+          python sync_garmin.py
