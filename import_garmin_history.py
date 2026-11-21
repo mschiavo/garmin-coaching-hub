@@ -1,14 +1,14 @@
 
 """
-Garmin -> Supabase: importazione storica mensile.
+GARMIN -> SUPABASE
+Importazione storica mensile - versione 3
 
 Compatibile con:
-- sync_garmin.py
-- Garmin History Import (GitHub Actions)
-- garmin-connect-personal-api-python 1.1.0
+- garmin-connect-personal-api-python==1.1.0
 - psycopg 3.x
+- sync_garmin.py esistente
 
-Variabili d'ambiente:
+Variabili:
 - IMPORT_MONTH
 - GARMIN_PERSONAL_API_KEY
 - SUPABASE_DATABASE_URL
@@ -19,19 +19,20 @@ import sys
 import time
 import random
 import calendar
+import json
 
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import psycopg
+from psycopg.types.json import Jsonb
+
 from garmin_personal_api import GarminPersonalApiClient
 
 from sync_garmin import (
     authenticate_garmin,
     fetch_activities,
     fetch_activity_details,
-    fetch_daily_metrics,
-    save_to_supabase,
     fail_if_missing_env,
     log,
 )
@@ -41,23 +42,32 @@ TIMEZONE = ZoneInfo("Europe/Rome")
 
 CHUNK_DAYS = 7
 PAUSE_SECONDS = 3
+MAX_ATTEMPTS = 4
 
-MAX_RETRIES = 4
-RETRY_HTTP_CODES = {429, 500, 502, 503, 504}
+RETRY_HTTP_CODES = {
+    408, 429, 500, 502, 503, 504
+}
 
 
 # ============================================
-# DATE
+# GESTIONE DATE
 # ============================================
 
 def get_month_range(month_string):
     try:
-        year, month = map(
-            int,
-            month_string.split("-"),
-        )
+        if (
+            len(month_string) != 7
+            or month_string[4] != "-"
+        ):
+            raise ValueError()
 
-        if year != 2026 or not 1 <= month <= 12:
+        year = int(month_string[:4])
+        month = int(month_string[5:])
+
+        if year != 2026:
+            raise ValueError()
+
+        if not 1 <= month <= 12:
             raise ValueError()
 
         start_date = date(year, month, 1)
@@ -69,54 +79,47 @@ def get_month_range(month_string):
         end_date = date(
             year,
             month,
-            last_day,
+            last_day
         )
 
     except (ValueError, TypeError):
         raise ValueError(
             "IMPORT_MONTH non valido. "
-            "Usare YYYY-MM, anno 2026."
+            "Formato richiesto: 2026-MM"
         ) from None
 
     today = datetime.now(TIMEZONE).date()
 
     if start_date > today:
         raise ValueError(
-            "Il mese richiesto è nel futuro."
+            "Non puoi importare mesi futuri."
         )
 
     return start_date, min(end_date, today)
 
 
 # ============================================
-# GESTIONE ERRORI HTTP
+# GESTIONE ERRORI
 # ============================================
 
 def get_http_status(exc):
     """
-    Recupera il codice HTTP quando disponibile,
-    senza stampare informazioni riservate.
+    Cerca il codice HTTP senza stampare
+    URL, token o contenuti delle risposte.
     """
-    for attr in (
-        "status_code",
-        "status",
-    ):
+    for attr in ("status_code", "status"):
         value = getattr(exc, attr, None)
 
         if isinstance(value, int):
             return value
 
-    response = getattr(
-        exc,
-        "response",
-        None,
-    )
+    response = getattr(exc, "response", None)
 
     if response is not None:
         value = getattr(
             response,
             "status_code",
-            None,
+            None
         )
 
         if isinstance(value, int):
@@ -125,72 +128,161 @@ def get_http_status(exc):
     return None
 
 
-def retry_operation(
-    operation,
-    description,
-):
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1,
-    ):
+def retry_operation(operation, description):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             return operation()
 
         except Exception as exc:
             status = get_http_status(exc)
-            error_name = type(exc).__name__
+            error_type = type(exc).__name__
 
             retryable = (
                 status in RETRY_HTTP_CODES
                 or (
                     status is None
-                    and error_name in (
+                    and error_type in {
                         "Timeout",
-                        "ConnectionError",
                         "ReadTimeout",
                         "ConnectTimeout",
-                    )
+                        "ConnectionError",
+                    }
                 )
             )
 
-            if status is None:
+            if status is not None:
                 log(
                     f"ERRORE {description}: "
-                    f"{error_name}"
+                    f"HTTP {status}"
                 )
             else:
                 log(
                     f"ERRORE {description}: "
-                    f"HTTP {status}"
+                    f"{error_type}"
                 )
 
             if not retryable:
                 raise
 
-            if attempt >= MAX_RETRIES:
-                log(
-                    "Numero massimo di "
-                    "tentativi raggiunto."
-                )
+            if attempt == MAX_ATTEMPTS:
                 raise
 
-            wait_seconds = min(
-                180,
-                15 * (2 ** (attempt - 1))
-                + random.uniform(0, 5),
+            delay = min(
+                120,
+                10 * (2 ** (attempt - 1))
+                + random.uniform(0, 3)
             )
 
             log(
-                f"Tentativo {attempt}/"
-                f"{MAX_RETRIES}. "
-                f"Attesa {wait_seconds:.0f}s"
+                f"Nuovo tentativo tra "
+                f"{delay:.0f} secondi"
             )
 
-            time.sleep(wait_seconds)
+            time.sleep(delay)
 
 
 # ============================================
-# CONTROLLO GIORNATE GIA' IMPORTATE
+# METRICHE GARMIN
+# ============================================
+
+def fetch_single_metric(
+    operation,
+    metric_name,
+    day,
+):
+    """
+    Una metrica non disponibile non blocca
+    l'importazione dell'intera giornata.
+    """
+    try:
+        result = retry_operation(
+            operation,
+            f"{metric_name} {day}"
+        )
+
+        json.dumps(result)
+
+        return result, True
+
+    except Exception as exc:
+        status = get_http_status(exc)
+
+        if status is not None:
+            log(
+                f"METRICA NON DISPONIBILE: "
+                f"{metric_name} {day} "
+                f"(HTTP {status})"
+            )
+        else:
+            log(
+                f"METRICA NON DISPONIBILE: "
+                f"{metric_name} {day} "
+                f"({type(exc).__name__})"
+            )
+
+        return None, False
+
+
+def fetch_day_metrics(garmin, current_date):
+    day = current_date.isoformat()
+
+    log(f"Giornata: {day}")
+
+    metrics = {}
+
+    operations = {
+        "sleep": lambda:
+            garmin.get_daily_sleep(day),
+
+        "hrv": lambda:
+            garmin.get_daily_hrv(day),
+
+        "body_battery": lambda:
+            garmin.get_daily_body_battery(
+                day, day
+            ),
+
+        "stress": lambda:
+            garmin.get_daily_stress(
+                day, day
+            ),
+
+        "daily_summary": lambda:
+            garmin.get_daily_summaries(
+                day, day
+            ),
+    }
+
+    failed = []
+
+    for name, operation in operations.items():
+        log(f"  Lettura {name}")
+
+        value, success = fetch_single_metric(
+            operation,
+            name,
+            day
+        )
+
+        metrics[name] = value
+
+        if not success:
+            failed.append(name)
+
+    row = (
+        current_date,
+        Jsonb(metrics["sleep"]),
+        Jsonb(metrics["hrv"]),
+        Jsonb(metrics["body_battery"]),
+        Jsonb(metrics["stress"]),
+        Jsonb(metrics["daily_summary"]),
+    )
+
+    return row, failed
+
+
+# ============================================
+# DATABASE
 # ============================================
 
 def get_completed_days(
@@ -198,12 +290,15 @@ def get_completed_days(
     start_date,
     end_date,
 ):
-    completed = set()
-
+    """
+    Considera completa una giornata soltanto
+    se tutte le metriche sono presenti
+    e diverse da JSON null.
+    """
     with psycopg.connect(
         database_url,
         sslmode="require",
-        connect_timeout=15,
+        connect_timeout=15
     ) as connection:
 
         with connection.cursor() as cursor:
@@ -212,30 +307,147 @@ def get_completed_days(
                 SELECT metric_date
                 FROM coaching.garmin_daily_metrics
                 WHERE metric_date BETWEEN %s AND %s
+
                   AND sleep_data IS NOT NULL
+                  AND sleep_data <> 'null'::jsonb
+
                   AND hrv_data IS NOT NULL
+                  AND hrv_data <> 'null'::jsonb
+
                   AND body_battery_data IS NOT NULL
+                  AND body_battery_data <> 'null'::jsonb
+
                   AND stress_data IS NOT NULL
+                  AND stress_data <> 'null'::jsonb
+
                   AND daily_summary IS NOT NULL
+                  AND daily_summary <> 'null'::jsonb
                 """,
-                (start_date, end_date),
+                (start_date, end_date)
             )
 
-            completed = {
+            return {
                 row[0]
                 for row in cursor.fetchall()
             }
 
-    return completed
+
+def save_block(
+    database_url,
+    activity_rows,
+    daily_rows,
+):
+    log("Connessione Supabase")
+
+    with psycopg.connect(
+        database_url,
+        sslmode="require",
+        connect_timeout=15
+    ) as connection:
+
+        with connection.cursor() as cursor:
+
+            for row in activity_rows:
+                cursor.execute(
+                    """
+                    INSERT INTO coaching.garmin_activities
+                    (
+                        activity_id,
+                        activity_date,
+                        activity_type,
+                        raw_data
+                    )
+                    VALUES (%s, %s, %s, %s)
+
+                    ON CONFLICT (activity_id)
+                    DO UPDATE SET
+                        activity_date =
+                            EXCLUDED.activity_date,
+                        activity_type =
+                            EXCLUDED.activity_type,
+                        raw_data =
+                            EXCLUDED.raw_data,
+                        synced_at = NOW()
+                    """,
+                    row
+                )
+
+            for row in daily_rows:
+                cursor.execute(
+                    """
+                    INSERT INTO
+                        coaching.garmin_daily_metrics
+                    (
+                        metric_date,
+                        sleep_data,
+                        hrv_data,
+                        body_battery_data,
+                        stress_data,
+                        daily_summary
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s
+                    )
+
+                    ON CONFLICT (metric_date)
+                    DO UPDATE SET
+                        sleep_data =
+                            COALESCE(
+                                NULLIF(
+                                    EXCLUDED.sleep_data,
+                                    'null'::jsonb
+                                ),
+                                coaching.garmin_daily_metrics.sleep_data
+                            ),
+                        hrv_data =
+                            COALESCE(
+                                NULLIF(
+                                    EXCLUDED.hrv_data,
+                                    'null'::jsonb
+                                ),
+                                coaching.garmin_daily_metrics.hrv_data
+                            ),
+                        body_battery_data =
+                            COALESCE(
+                                NULLIF(
+                                    EXCLUDED.body_battery_data,
+                                    'null'::jsonb
+                                ),
+                                coaching.garmin_daily_metrics.body_battery_data
+                            ),
+                        stress_data =
+                            COALESCE(
+                                NULLIF(
+                                    EXCLUDED.stress_data,
+                                    'null'::jsonb
+                                ),
+                                coaching.garmin_daily_metrics.stress_data
+                            ),
+                        daily_summary =
+                            COALESCE(
+                                NULLIF(
+                                    EXCLUDED.daily_summary,
+                                    'null'::jsonb
+                                ),
+                                coaching.garmin_daily_metrics.daily_summary
+                            ),
+                        synced_at = NOW()
+                    """,
+                    row
+                )
+
+        connection.commit()
+
+    log("Blocco salvato correttamente")
 
 
 # ============================================
-# IMPORTAZIONE
+# IMPORTAZIONE PRINCIPALE
 # ============================================
 
 def main():
     log("================================")
-    log("GARMIN HISTORY IMPORT")
+    log("GARMIN HISTORY IMPORT - VERSIONE 3")
     log("================================")
 
     month_string = fail_if_missing_env(
@@ -257,32 +469,27 @@ def main():
     log(f"Mese: {month_string}")
     log(f"Periodo: {start_date} / {end_date}")
 
-    log("Verifica giornate già presenti...")
-
     completed_days = get_completed_days(
         database_url,
         start_date,
-        end_date,
+        end_date
     )
 
     log(
-        f"Giornate già presenti: "
+        f"Giornate già complete: "
         f"{len(completed_days)}"
     )
 
-    access_token = authenticate_garmin(
-        api_key
-    )
+    token = authenticate_garmin(api_key)
 
     total_activities = 0
     total_days = 0
-    skipped_days = 0
+    total_skipped = 0
+    total_incomplete = 0
 
     current = start_date
 
-    with GarminPersonalApiClient(
-        access_token
-    ) as garmin:
+    with GarminPersonalApiClient(token) as garmin:
 
         while current <= end_date:
 
@@ -290,7 +497,7 @@ def main():
                 current + timedelta(
                     days=CHUNK_DAYS - 1
                 ),
-                end_date,
+                end_date
             )
 
             log("--------------------------------")
@@ -298,26 +505,23 @@ def main():
                 f"BLOCCO: {current} / {chunk_end}"
             )
 
-            # Le attività vengono sempre aggiornate.
             activities = retry_operation(
                 lambda: fetch_activities(
                     garmin,
                     current,
-                    chunk_end,
+                    chunk_end
                 ),
-                "ricerca attività",
+                "ricerca attività"
             )
 
             activity_rows = retry_operation(
                 lambda: fetch_activity_details(
                     garmin,
-                    activities,
+                    activities
                 ),
-                "dettagli attività",
+                "dettagli attività"
             )
 
-            # Recuperiamo soltanto le giornate
-            # che non risultano già presenti.
             daily_rows = []
 
             day = current
@@ -326,44 +530,36 @@ def main():
 
                 if day in completed_days:
                     log(
-                        f"Giornata già presente: "
+                        f"Giornata già completa: "
                         f"{day}"
                     )
-                    skipped_days += 1
+                    total_skipped += 1
 
                 else:
-                    rows = retry_operation(
-                        lambda d=day:
-                            fetch_daily_metrics(
-                                garmin,
-                                d,
-                                d,
-                            ),
-                        f"metriche {day}",
+                    row, failed = fetch_day_metrics(
+                        garmin,
+                        day
                     )
 
-                    daily_rows.extend(rows)
+                    daily_rows.append(row)
+
+                    if failed:
+                        total_incomplete += 1
+                        log(
+                            f"Metriche mancanti {day}: "
+                            + ", ".join(failed)
+                        )
 
                 day += timedelta(days=1)
 
-            save_to_supabase(
+            save_block(
                 database_url,
                 activity_rows,
-                daily_rows,
-            )
-
-            total_activities += len(
-                activity_rows
-            )
-
-            total_days += len(
                 daily_rows
             )
 
-            log(
-                f"BLOCCO COMPLETATO: "
-                f"{current} / {chunk_end}"
-            )
+            total_activities += len(activity_rows)
+            total_days += len(daily_rows)
 
             current = chunk_end + timedelta(
                 days=1
@@ -375,17 +571,12 @@ def main():
     log("================================")
     log("IMPORTAZIONE COMPLETATA")
     log(f"Mese: {month_string}")
+    log(f"Attività elaborate: {total_activities}")
+    log(f"Giornate importate: {total_days}")
+    log(f"Giornate già complete: {total_skipped}")
     log(
-        f"Attività elaborate: "
-        f"{total_activities}"
-    )
-    log(
-        f"Giornate importate: "
-        f"{total_days}"
-    )
-    log(
-        f"Giornate già presenti: "
-        f"{skipped_days}"
+        f"Giornate con errori: "
+        f"{total_incomplete}"
     )
     log("================================")
 
