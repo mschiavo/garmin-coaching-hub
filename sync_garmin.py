@@ -202,14 +202,21 @@ def main():
     print(f"Giornate elaborate: {len(daily_rows)}")
 
 
+
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
+    except Exception as exc:
         print(
-            "SINCRONIZZAZIONE FALLITA. "
-            "Controllare connessione, permessi "
-            "e struttura dei dati.",
+            "SINCRONIZZAZIONE FALLITA",
             file=sys.stderr,
         )
+        print(
+            f"Tipo errore: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+
+        # Non stampiamo il messaggio completo:
+        # potrebbe contenere credenziali o dati privati.
         sys.exit(1)
+
