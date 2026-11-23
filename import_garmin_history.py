@@ -38,7 +38,7 @@ from sync_garmin import (
 )
 
 
-TIMEZONE = ZoneInfo("Europe/Rome")
+TIMEZONE = ZoneInfo(os.environ.get("GARMIN_TIMEZONE", "Europe/Rome"))
 
 CHUNK_DAYS = 7
 PAUSE_SECONDS = 3
@@ -64,7 +64,7 @@ def get_month_range(month_string):
         year = int(month_string[:4])
         month = int(month_string[5:])
 
-        if year != 2026:
+        if not 1 <= year <= 9999:
             raise ValueError()
 
         if not 1 <= month <= 12:
@@ -85,7 +85,7 @@ def get_month_range(month_string):
     except (ValueError, TypeError):
         raise ValueError(
             "IMPORT_MONTH non valido. "
-            "Formato richiesto: 2026-MM"
+            "Formato richiesto: YYYY-MM"
         ) from None
 
     today = datetime.now(TIMEZONE).date()

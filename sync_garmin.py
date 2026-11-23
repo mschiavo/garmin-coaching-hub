@@ -17,7 +17,7 @@ from garmin_personal_api import (
 # CONFIGURAZIONE
 # ============================================
 
-TIMEZONE = ZoneInfo("Europe/Rome")
+TIMEZONE = ZoneInfo(os.environ.get("GARMIN_TIMEZONE", "Europe/Rome"))
 MAX_DAYS = 31
 
 

@@ -1,0 +1,19 @@
+name: Community Edition Checks
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Compile Python scripts
+        run: python -m py_compile sync_garmin.py import_garmin_history.py tools/apply_community_v21.py
+      - name: Run tests
+        run: python -m unittest discover -s tests -v

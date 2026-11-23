@@ -1,27 +1,13 @@
-
 name: Garmin History Import
 
 on:
   workflow_dispatch:
     inputs:
       month:
-        description: "Mese del 2026 da importare"
+        description: "Mese da importare (YYYY-MM, es. 2025-09)"
         required: true
-        type: choice
+        type: string
         default: "2026-01"
-        options:
-          - "2026-01"
-          - "2026-02"
-          - "2026-03"
-          - "2026-04"
-          - "2026-05"
-          - "2026-06"
-          - "2026-07"
-          - "2026-08"
-          - "2026-09"
-          - "2026-10"
-          - "2026-11"
-          - "2026-12"
 
 permissions:
   contents: read
@@ -34,27 +20,38 @@ jobs:
   import-history:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-
+      - name: Validate month
+        env:
+          IMPORT_MONTH: ${{ inputs.month }}
+        run: |
+          python - <<'PY'
+          import calendar, datetime, os, re
+          value = os.environ['IMPORT_MONTH']
+          if not re.fullmatch(r'[0-9]{4}-(0[1-9]|1[0-2])', value):
+              raise SystemExit('IMPORT_MONTH must have format YYYY-MM')
+          year, month = map(int, value.split('-'))
+          if year < 1 or datetime.date(year, month, 1) > datetime.date.today():
+              raise SystemExit('IMPORT_MONTH cannot be in the future')
+          print('Validated import month:', value)
+          PY
       - name: Install dependencies
         run: |
           python -m pip install \
             garmin-connect-personal-api-python==1.1.0 \
             "psycopg[binary]>=3.2,<4"
-
       - name: Import Garmin history
         env:
           GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          GARMIN_TIMEZONE: ${{ vars.GARMIN_TIMEZONE || 'Europe/Rome' }}
           IMPORT_MONTH: ${{ inputs.month }}
         run: python import_garmin_history.py
