@@ -24,6 +24,8 @@ python -m unittest discover -s tests/sql -v
 
 La suite SQL installa schema e fixture e lascia `gch_v341_fixture` disponibile per il restore. Per una prova manuale indipendente, usare i quattro file del fresh install più `tests/sql/auth_stub.sql` come primo passo. Generare il file con il comando seguente e applicarlo con `psql -X -h 127.0.0.1 -p 55441 -U postgres -d gch_v341_fixture -v ON_ERROR_STOP=1 -f .cache/v341-fixture.sql` soltanto su un database applicativo vuoto con nome esatto.
 
+In locale, la suite e la fixture predefinita richiedono che anche il backend PostgreSQL risponda su `127.0.0.1`. Su GitHub Actions il runner raggiunge la porta pubblicata su loopback, mentre il backend risponde dalla rete del container. Il job legge `system_identifier` direttamente dal servizio `postgres:17` con `docker exec` e lo confronta con il cluster raggiunto prima di creare i database. La suite ripete il confronto a ogni connessione e la fixture verifica nuovamente identità esatta, nome del database e archivio vuoto. `GCH_TEST_POSTGRES_SYSTEM_ID` è riservata alla suite SQL e viene impostata dal workflow. La generazione CLI conserva le proprie guardie per locale e staging.
+
 ```powershell
 python -X utf8 -m tools.staging_fixture --reference 2024-03-05 --size large |
   Set-Content -Encoding utf8NoBOM .cache/v341-fixture.sql

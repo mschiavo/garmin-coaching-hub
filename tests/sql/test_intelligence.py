@@ -1,4 +1,4 @@
-"""Run against two empty databases on a dedicated loopback PostgreSQL service."""
+"""Run against empty databases on a dedicated PostgreSQL service reached via loopback."""
 import os
 from pathlib import Path
 from datetime import date
@@ -11,6 +11,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from garmin_coverage import daily_import, repair_plan, legacy_plan, schema_version
 from sync_garmin import import_activities
+from tools.staging_fixture import validate_system_id
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "supabase/migrations/0034_data_intelligence.sql"
@@ -22,7 +23,21 @@ def connect(name):
     options = conninfo_to_dict(os.environ["V34_TEST_DSN"])
     if options.get("host") != "127.0.0.1" or options.get("hostaddr", "127.0.0.1") != "127.0.0.1" or "service" in options:
         raise ValueError("V34_TEST_DSN must target the isolated loopback server")
-    return psycopg.connect(make_conninfo(**(options | {"dbname": name})), autocommit=True)
+    expected = os.environ.get("GCH_TEST_POSTGRES_SYSTEM_ID")
+    if expected is not None:
+        validate_system_id(expected)
+    conn = psycopg.connect(make_conninfo(**(options | {"dbname": name, "hostaddr": "127.0.0.1"})), autocommit=True)
+    try:
+        if expected is not None:
+            actual = conn.execute("SELECT system_identifier::text FROM pg_catalog.pg_control_system()").fetchone()[0]
+            if actual != expected:
+                raise ValueError("Il cluster PostgreSQL non coincide con il servizio sintetico")
+        elif conn.execute("SELECT inet_server_addr() = inet '127.0.0.1'").fetchone()[0] is not True:
+            raise ValueError("Il backend PostgreSQL locale deve essere su 127.0.0.1")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 def apply(conn, relative):

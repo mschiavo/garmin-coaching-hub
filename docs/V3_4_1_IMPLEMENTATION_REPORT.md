@@ -2,6 +2,16 @@
 
 Branch `feature/v341-staging-reliability`, worktree permanente `D:\Repository\garmin-coaching-hub-dev`, base V3.4 `5b1700b892a6f6b3b29e22326978d42f0504982d`. Per ottenere lo SHA della consegna usare `git log -1 --format=%H -- docs/V3_4_1_IMPLEMENTATION_REPORT.md`.
 
+## Correzione del job PostgreSQL
+
+Sul commit pubblicato `cec87a11e3774b3578f9d7a7cfaed9dc5fd72d81`, Dashboard e Python sono passati. PostgreSQL ha eseguito gli otto test V3.4, poi ha fallito in `Reliability.setUpClass` durante il caricamento della fixture nel database previsto. Il log mostra il container su una rete Docker bridge e la pubblicazione della porta 5432. La guardia confrontava l’indirizzo del backend PostgreSQL con l’indirizzo loopback usato dal client. Il log contiene il predicato fallito e non registra l’indirizzo effettivo del backend. [Run 45416838248](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45416838248) · [Job PostgreSQL](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45416838248/job/138525245398)
+
+La riproduzione locale ha usato PostgreSQL 17.9 e un inoltro TCP da `127.0.0.1` a `127.0.0.2`. Sul nome database previsto, la fixture estratta dal commit pubblicato ha restituito lo stesso errore. L’inoltro riproduce la differenza tra indirizzo client e backend. Docker non era disponibile nel worktree locale.
+
+Il job correttivo acquisisce l’identificatore esatto del cluster dall’interno del servizio tramite `docker exec`. Lo verifica dal runner prima della creazione dei database e ad ogni connessione della suite. La fixture di test verifica ancora identificatore, nome del database e archivio vuoto prima degli insert. Il percorso locale predefinito conserva il controllo sul loopback lato server. Il percorso staging conserva le verifiche su ref, TLS e marker. [Runbook](V3_4_1_STAGING_RUNBOOK.md)
+
+**Esito locale della correzione: 69 test passati**, inclusi i 67 precedenti. Training Load 5, Analytics/API 15, Chromium 16, Python 16, PostgreSQL 17. I 17 test SQL sono passati sia su loopback diretto sia tramite inoltro TCP. I nuovi casi verificano il rifiuto di identificatore errato o malformato, nome database errato, archivio popolato e backend inoltrato senza identità esplicita. Build e `py_compile` superati, chunk maggiore 393,56 kB e audit npm a zero vulnerabilità. Il job GitHub sul nuovo SHA resta da eseguire dopo pubblicazione autorizzata.
+
 ## Riproduzioni e modifiche
 
 | Caso al commit base | Riscontro | Esito V3.4.1 |
@@ -49,7 +59,7 @@ La ricerca offset può ancora subire cambiamenti invisibili nelle pagine success
 
 - V3.4, SHA `5b1700b892a6f6b3b29e22326978d42f0504982d`. Workflow push Community Edition Checks completato con success per `dashboard`, `postgresql` e `python`. [Run 45408402927](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45408402927)
 - V3.3, SHA `f117f98073a4544b4099c5483ef0514ec3132d72`. Workflow push Community Edition Checks completato con success per `dashboard` e `python`. [Run 45387073449](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45387073449)
-- **Gate A**, verifiche locali superate. **Gate B**, pubblicazione e CI V3.4.1 richiedono approvazione e osservazione per SHA. **Gate C**, richiede Auth/PostgREST, frontend e ripristino su staging Supabase separato. **Gate D**, richiede Garmin autorizzata per 1–3 giorni chiusi. La decisione di rollout viene dopo C e D. [Runbook](V3_4_1_STAGING_RUNBOOK.md)
+- **Gate A**, verifiche locali superate. **Gate B**, il commit V3.4.1 iniziale è pubblicato e il job PostgreSQL è fallito. La correzione locale richiede pubblicazione autorizzata e verifica della CI per SHA. **Gate C**, richiede Auth/PostgREST, frontend e ripristino su staging Supabase separato. **Gate D**, richiede Garmin autorizzata per 1–3 giorni chiusi. La decisione di rollout viene dopo C e D. [Runbook](V3_4_1_STAGING_RUNBOOK.md)
 
 ## Riferimenti protetti
 

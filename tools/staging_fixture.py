@@ -9,6 +9,7 @@ from psycopg.conninfo import conninfo_to_dict
 
 REF = re.compile(r"[a-z0-9]{20}")
 LOCAL_DB = "gch_v341_fixture"
+UPGRADE_DB = "gch_v341_upgrade"
 
 
 class StagingTargetError(ValueError):
@@ -53,18 +54,31 @@ def marker_query(conn, ref):
         raise StagingTargetError("Marker di staging assente o discordante")
 
 
-def fixture_sql(reference: date, large: bool, ref: str | None = None, legacy: bool = False):
+def validate_system_id(value: str) -> str:
+    if not re.fullmatch(r"[1-9][0-9]{0,19}", value) or int(value) > 2**64 - 1:
+        raise ValueError("Identificatore cluster sintetico non valido")
+    return value
+
+
+def fixture_sql(reference: date, large: bool, ref: str | None = None, legacy: bool = False, *,
+                database: str = LOCAL_DB, system_id: str | None = None):
     if ref is not None and not REF.fullmatch(ref):
         raise ValueError("Project ref non valido")
     if not date(2001, 1, 1) <= reference <= date(9998, 12, 31):
         raise ValueError("Data di riferimento fuori intervallo")
     start = reference - timedelta(days=2500 if large else 7)
     count = 2501 if large else 8
-    target = (
-        f"(SELECT array_agg(project_ref::text) FROM dashboard_private.staging_identity) "
-        f"IS DISTINCT FROM ARRAY['{ref}']::text[]" if ref else
-        f"current_database() <> '{LOCAL_DB}' OR inet_server_addr() IS DISTINCT FROM inet '127.0.0.1'"
-    )
+    if database not in (LOCAL_DB, UPGRADE_DB) or (ref is not None and system_id is not None):
+        raise ValueError("Destinazione sintetica non valida")
+    if ref is not None:
+        target = (f"(SELECT array_agg(project_ref::text) FROM dashboard_private.staging_identity) "
+                  f"IS DISTINCT FROM ARRAY['{ref}']::text[]")
+    else:
+        identity = "inet_server_addr() IS DISTINCT FROM inet '127.0.0.1'"
+        if system_id is not None:
+            identity = (f"(SELECT system_identifier::text FROM pg_catalog.pg_control_system()) "
+                        f"IS DISTINCT FROM '{validate_system_id(system_id)}'")
+        target = f"current_database() <> '{database}' OR {identity}"
     coverage_lock = "" if legacy else ", coaching.import_coverage"
     coverage_check = "" if legacy else "OR EXISTS (SELECT FROM coaching.import_coverage)"
     coverage = "" if legacy else f"""

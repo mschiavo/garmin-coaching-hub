@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
+import os
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -10,9 +11,8 @@ from psycopg import errors
 from garmin_coverage import ARCHIVE_LOCK, LOCK, daily_import, record, repair_plan, schema_version, writer
 from sync_garmin import import_activities
 from test_intelligence import ALLOWED, DENIED, ROOT, apply, claim, connect, rpc
-from tools.staging_fixture import LOCAL_DB, fixture_sql
+from tools.staging_fixture import LOCAL_DB, UPGRADE_DB, fixture_sql
 
-UPGRADE_DB = "gch_v341_upgrade"
 MIGRATION = "supabase/migrations/0035_staging_reliability.sql"
 REFERENCE = date(2024, 3, 5)
 DAY = date(2025, 2, 1)
@@ -37,6 +37,11 @@ def reconcile(conn, garmin, start=DAY, end=DAY):
     return import_activities(conn, schema_version(conn), garmin, start, end, TODAY)
 
 
+def synthetic_fixture(database=LOCAL_DB, *, legacy=False):
+    return fixture_sql(REFERENCE, not legacy, legacy=legacy, database=database,
+                       system_id=os.environ.get("GCH_TEST_POSTGRES_SYSTEM_ID"))
+
+
 def result(conn, day=DAY, source="activities"):
     return conn.execute("""
         SELECT attempt_state, evidence, reconciliation, observed_count, missing_count
@@ -56,8 +61,7 @@ class Reliability(TestCase):
                 conn.execute("INSERT INTO dashboard_private.allowed_users(user_id) VALUES (%s)", (ALLOWED,))
                 legacy = db == UPGRADE_DB
                 if legacy:
-                    # Same deterministic generator, with the dedicated upgrade DB guard.
-                    conn.execute(fixture_sql(REFERENCE, False, legacy=True).replace(LOCAL_DB, UPGRADE_DB))
+                    conn.execute(synthetic_fixture(UPGRADE_DB, legacy=True))
                     source = (ROOT / MIGRATION).read_text(encoding="utf-8")
                     with cls._db_error(conn, errors.RaiseException):
                         conn.execute(source)
@@ -78,7 +82,7 @@ class Reliability(TestCase):
                 apply(conn, MIGRATION)
                 apply(conn, MIGRATION)
                 if not legacy:
-                    conn.execute(fixture_sql(REFERENCE, True))
+                    conn.execute(synthetic_fixture())
 
     @staticmethod
     @contextmanager
@@ -101,8 +105,8 @@ class Reliability(TestCase):
 
     def test_fixture_acl_rpc_counts_and_cursor(self):
         with connect(LOCAL_DB) as conn:
-            with self.assertRaises(errors.RaiseException):
-                conn.execute(fixture_sql(REFERENCE, True))
+            with self.assertRaisesRegex(errors.RaiseException, "La fixture richiede un archivio vuoto"):
+                conn.execute(synthetic_fixture())
             conn.execute("ROLLBACK")
             claim(conn, DENIED)
             with self.assertRaises(errors.InsufficientPrivilege):
@@ -129,6 +133,33 @@ class Reliability(TestCase):
                     if kind != "daily":
                         cursor.append(page["next_cursor"]["key"])
                 self.assertEqual(total, meta[kind]["count"])
+
+    def test_fixture_requires_exact_cluster_and_database_identity(self):
+        with connect(LOCAL_DB) as conn:
+            identity = conn.execute("SELECT system_identifier::text FROM pg_catalog.pg_control_system()").fetchone()[0]
+            forwarded = conn.execute("SELECT inet_server_addr() <> inet '127.0.0.1'").fetchone()[0]
+            other = "1" if identity != "1" else "2"
+            for database, expected_id, error in (
+                (LOCAL_DB, identity, "La fixture richiede un archivio vuoto"),
+                (LOCAL_DB, other, "Destinazione fixture rifiutata"),
+                (UPGRADE_DB, identity, "Destinazione fixture rifiutata"),
+            ):
+                with self.subTest(database=database, error=error):
+                    with self.assertRaisesRegex(errors.RaiseException, error):
+                        conn.execute(fixture_sql(REFERENCE, True, database=database, system_id=expected_id))
+                    conn.execute("ROLLBACK")
+            if forwarded:
+                with self.assertRaisesRegex(errors.RaiseException, "Destinazione fixture rifiutata"):
+                    conn.execute(fixture_sql(REFERENCE, True))
+                conn.execute("ROLLBACK")
+        with patch.dict(os.environ, {"GCH_TEST_POSTGRES_SYSTEM_ID": other}):
+            with self.assertRaisesRegex(ValueError, "non coincide"):
+                connect(LOCAL_DB)
+        if forwarded:
+            with patch.dict(os.environ):
+                os.environ.pop("GCH_TEST_POSTGRES_SYSTEM_ID")
+                with self.assertRaisesRegex(ValueError, "backend PostgreSQL locale"):
+                    connect(LOCAL_DB)
 
     def test_failed_commit_rolls_back_archive_and_attestation(self):
         with connect(LOCAL_DB) as conn:

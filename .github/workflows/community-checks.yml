@@ -43,8 +43,21 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
-      - run: |
-          python -c "import os, psycopg; from psycopg import sql; c=psycopg.connect(os.environ['V34_TEST_DSN'],autocommit=True); [c.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name))) for name in ('v34_fresh','v34_upgrade','gch_v341_fixture','gch_v341_upgrade')]; c.close()"
+      - name: Verify synthetic PostgreSQL cluster and run SQL tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          GCH_TEST_POSTGRES_SYSTEM_ID="$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()')"
+          test -n "$GCH_TEST_POSTGRES_SYSTEM_ID"
+          export GCH_TEST_POSTGRES_SYSTEM_ID
+          PYTHONPATH=tests/sql python - <<'PY'
+          from psycopg import sql
+          from test_intelligence import connect
+
+          with connect("postgres") as conn:
+              for name in ("v34_fresh", "v34_upgrade", "gch_v341_fixture", "gch_v341_upgrade"):
+                  conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+          PY
           python -m unittest discover -s tests/sql -v
   dashboard:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@ from datetime import date
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from tools.staging_fixture import fixture_sql, marker_query, staging_connection
+from tools.staging_fixture import LOCAL_DB, UPGRADE_DB, fixture_sql, marker_query, staging_connection
 from tools.staging_probe import probe
 
 REF = "a" * 20
@@ -57,6 +57,21 @@ class StagingTests(TestCase):
         self.assertNotIn("import_coverage", fixture_sql(day, False, legacy=True))
         with self.assertRaises(ValueError):
             fixture_sql(day, False, "staging';")
+
+    def test_cluster_identity_is_explicit_and_cannot_replace_cloud_marker(self):
+        day = date(2024, 3, 5)
+        for name in (LOCAL_DB, UPGRADE_DB):
+            script = fixture_sql(day, False, database=name, system_id="18446744073709551615")
+            self.assertIn(f"current_database() <> '{name}'", script)
+            self.assertIn("pg_catalog.pg_control_system()", script)
+            self.assertIn("IS DISTINCT FROM '18446744073709551615'", script)
+        for invalid in ("", "0", "18446744073709551616", "127.0.0.1", "42';"):
+            with self.subTest(identifier=invalid), self.assertRaises(ValueError):
+                fixture_sql(day, False, system_id=invalid)
+        with self.assertRaises(ValueError):
+            fixture_sql(day, False, database="postgres", system_id="42")
+        with self.assertRaises(ValueError):
+            fixture_sql(day, False, ref=REF, system_id="42")
 
     def test_probe_rejects_secret_key_and_stops_on_marker_before_http(self):
         env = ENV | {
