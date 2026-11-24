@@ -1,11 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import ts from 'typescript';
-// Transpile only the pure calculation module; no browser or real account required.
-const source = readFileSync(new URL('../src/trainingLoad.ts', import.meta.url), 'utf8');
-const { outputText } = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}});
-const { buildTrainingLoad } = await import('data:text/javascript;base64,'+Buffer.from(outputText).toString('base64'));
+import { buildTrainingLoad } from '../src/trainingLoad.ts';
 const run=(date,km,seconds=3600)=>({date,distance_m:km===null?null:km*1000,duration_s:seconds});
 test('Monday grouping, units, missing weeks and baseline',()=>{
  const weeks=buildTrainingLoad([run('2026-01-05',10),run('2026-01-11',5,1800),run('2026-01-12',20),run('2026-01-26',5),run('2026-02-02',20)],'2026-01-05','2026-02-08');
@@ -26,4 +21,12 @@ test('invalid or reversed date range',()=>{
 test('calendar year boundary and partial final week',()=>{
  const weeks=buildTrainingLoad([run('2025-12-31',8),run('2026-01-01',2),run('2026-01-05',5)],'2025-12-29','2026-01-06');
  assert.deepEqual(weeks.map(w=>[w.week,w.km]),[['2025-12-29',10],['2026-01-05',5]]);
+});
+
+test('rejects impossible dates and keeps every week of a long series',()=>{
+ const period=buildTrainingLoad([run('2020-02-30',30)],'2010-01-04','2021-01-04');
+ assert.ok(period.length>550);
+ assert.equal(period.at(-1).week,'2021-01-04');
+ assert.equal(period.reduce((total,week)=>total+week.runs,0),0);
+ assert.deepEqual(buildTrainingLoad([],'2026-02-30','2026-03-02'),[]);
 });

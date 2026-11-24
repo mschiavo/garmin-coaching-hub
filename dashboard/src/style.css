@@ -65,3 +65,15 @@
  .chart-cartesian .recharts-cartesian-axis-tick-value,
  .load-chart-v312 .recharts-cartesian-axis-tick-value {font-size:11px !important;}
 }
+
+.advanced-analytics { display: grid; gap: 16px; min-width: 0; }
+.advanced-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
+.advanced-controls label { display: grid; gap: 6px; max-width: 100%; min-width: 0; }
+.advanced-controls select { max-width: 100%; min-width: 0; }
+.advanced-controls :focus-visible, .advanced-analytics summary:focus-visible, .advanced-confirm input:focus-visible { outline: 2px solid #5bdce7; outline-offset: 3px; }
+.advanced-context { color: #a9bdd8; }
+.advanced-panel { padding: 16px; overflow-wrap: anywhere; min-width: 0; }
+.advanced-panel h3 { margin: 0 0 10px; }
+.advanced-panel p, .advanced-panel ul { margin: 10px 0; }
+.advanced-panel ul { padding-inline-start: 20px; }
+.advanced-confirm { display: flex; align-items: start; gap: 8px; margin-top: 12px; }

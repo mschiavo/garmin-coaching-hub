@@ -1,11 +1,12 @@
-# Garmin Coaching Hub — Community V3.1.5 Beta
+# Garmin Coaching Hub — V3.3 Advanced Analytics
 
 Dashboard personale per attività Garmin, recupero e Training Load, con sincronizzazione Python, database Supabase e frontend React/TypeScript.
 
-Questa beta è destinata a un fork con un account Garmin e un progetto Supabase indipendenti. Non è una piattaforma multi-utente condivisa.
+La Community Edition è destinata a un fork con un account Garmin e un progetto Supabase indipendenti. Non è una piattaforma multi-utente condivisa.
 
 - [Installazione da zero](docs/COMMUNITY_SETUP.md)
 - [Checklist e report di collaudo](docs/BETA_TEST.md)
+- [Advanced Analytics V3.3](docs/V3_3_ANALYTICS.md)
 - [Training Load](docs/V3_TRAINING_LOAD.md)
 - [Grafici interattivi V3.1.4](README-V3.1.4.md)
 
@@ -24,8 +25,8 @@ Per il frontend locale, copiare `.env.example` in `.env.local` nella cartella da
 
 Dalla radice: `python -m unittest discover -s tests -v`.
 
-## Stato della beta
+## Stato della V3.3
 
-La V3.1.4 integrata ha superato la build locale e tre test Python; la V3.1.5 richiede una nuova verifica CI e un collaudo con un secondo account. Recharts 2 resta temporaneamente in uso; la migrazione a v3 è separata. Non applicare gli script di patch storici a questa installazione.
+La V3.3 usa Recharts 3.11 e la RPC esistente. Advanced Analytics include efficienza, prestazioni, recupero, carico e report settimanale scaricabile. Il collaudo con dati Garmin reali resta da eseguire.
 
 La produzione upstream (`main`) resta separata. Leggere le avvertenze di sicurezza nella guida prima di distribuire il progetto.
