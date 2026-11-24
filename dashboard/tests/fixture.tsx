@@ -1,0 +1,10 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {Plot,LoadChart,loadWeekLabel,type LoadPoint} from '../src/charts';
+import {buildTrainingLoad} from '../src/trainingLoad';
+import '../src/style.css';
+const runs = Array.from({length:9},(_,i)=>({date:new Date(Date.UTC(2026,0,5+i*7)).toISOString().slice(0,10),distance_m:(10+i*2)*1000,duration_s:3600}));
+const load:LoadPoint[]=buildTrainingLoad(runs,'2026-01-05','2026-03-03').map((w,i,a)=>({...w,label:loadWeekLabel(w.week),partial:i===a.length-1}));
+const series=[{key:'km',name:'Volume',color:'#62a9ff'}];
+const data=load.map((w,i)=>({...w,pace:300+i*5,hr:130+i*2}));
+createRoot(document.getElementById('root')!).render(<main style={{width:'100%',maxWidth:1100,margin:'0 auto',padding:12,boxSizing:'border-box'}}><div className="charts">{(['line','bar','area','scatter'] as const).map(kind=><Plot key={kind} title={kind==='scatter'?'Ritmo vs frequenza cardiaca':`Grafico ${kind}`} data={data} series={series} kind={kind}/>) }<LoadChart title="Volume" subtitle="Test sintetico" data={load} metric="km" reference/><LoadChart title="Tempo" subtitle="Test sintetico" data={load} metric="hours" kind="bar"/><LoadChart title="Frequenza" subtitle="Test sintetico" data={load} metric="runs" kind="bar"/><LoadChart title="Rapporto" subtitle="Test sintetico" data={load} metric="ratio"/></div></main>);

@@ -16,3 +16,4 @@
 *.gif binary
 *.ico binary
 *.zip binary
+.nvmrc text eol=lf

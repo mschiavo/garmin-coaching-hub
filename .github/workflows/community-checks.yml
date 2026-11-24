@@ -35,3 +35,6 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run build
+      - run: npm run test:load
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:charts

@@ -70,3 +70,7 @@ backup/
 backups/
 temp/
 tmp/
+
+# Browser test artifacts
+/dashboard/playwright-report/
+/dashboard/test-results/
