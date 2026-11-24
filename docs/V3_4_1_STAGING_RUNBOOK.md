@@ -2,6 +2,8 @@
 
 Il percorso locale verifica SQL, dashboard e writer simulato. Il percorso Supabase richiede un progetto separato, account sintetici e approvazione per provisioning, migrazione, fixture e ogni scrittura di collaudo. Il percorso Garmin reale richiede un’autorizzazione successiva e distinta.
 
+Per il percorso automatizzato PowerShell e la checklist unica delle operazioni manuali, vedere il [report operativo](V3_4_1_OPERATIONS_REPORT.md).
+
 ## A. PostgreSQL locale isolato
 
 Usare Python 3.12, Node 22 e PostgreSQL 17 come in CI. PostgreSQL 14 è il minimo richiesto dalla migrazione. Da PowerShell avviare un’istanza di test sulla porta 55441 in una directory nuova. Usare un cluster sintetico vuoto se i percorsi o i nomi esistono già.

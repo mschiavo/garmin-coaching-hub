@@ -57,6 +57,8 @@ La ricerca offset può ancora subire cambiamenti invisibili nelle pagine success
 
 ## CI remota e gate
 
+L’esito della CI sul commit correttivo pubblicato e la checklist di staging sono nel [report operativo](V3_4_1_OPERATIONS_REPORT.md).
+
 - V3.4, SHA `5b1700b892a6f6b3b29e22326978d42f0504982d`. Workflow push Community Edition Checks completato con success per `dashboard`, `postgresql` e `python`. [Run 45408402927](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45408402927)
 - V3.3, SHA `f117f98073a4544b4099c5483ef0514ec3132d72`. Workflow push Community Edition Checks completato con success per `dashboard` e `python`. [Run 45387073449](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45387073449)
 - **Gate A**, verifiche locali superate. **Gate B**, il commit V3.4.1 iniziale è pubblicato e il job PostgreSQL è fallito. La correzione locale richiede pubblicazione autorizzata e verifica della CI per SHA. **Gate C**, richiede Auth/PostgREST, frontend e ripristino su staging Supabase separato. **Gate D**, richiede Garmin autorizzata per 1–3 giorni chiusi. La decisione di rollout viene dopo C e D. [Runbook](V3_4_1_STAGING_RUNBOOK.md)
