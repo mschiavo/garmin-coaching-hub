@@ -83,13 +83,13 @@ export function Plot({title,subtitle,data,series,kind='line',height=300,referenc
 }
 
 /* V3.1 TRAINING LOAD REFINEMENT */
-export type LoadPoint = {week:string;label:string;km:number;hours:number;runs:number;baselineKm:number|null;ratio:number|null;deltaPct:number|null;partial:boolean};
+export type LoadPoint = {week:string;label:string;km:number|null;hours:number|null;runs:number;distanceCount?:number;durationCount?:number;baselineKm:number|null;ratio:number|null;deltaPct:number|null;partial:boolean};
 const loadNumber = (v:number|null|undefined, digits=1) => v == null || !Number.isFinite(v) ? '—' : v.toLocaleString('it-IT',{minimumFractionDigits:digits,maximumFractionDigits:digits});
 export const loadWeekLabel = (s:string) => new Date(`${s}T12:00:00Z`).toLocaleDateString('it-IT',{day:'2-digit',month:'short',timeZone:'UTC'});
 function LoadTooltip({active,payload}:{active?:boolean;payload?:ReadonlyArray<{payload:LoadPoint}>}) {
   const p=payload?.[0]?.payload;
   if(!active||!p)return null;
-  return <div className="load-tooltip"><strong>Settimana del {new Date(`${p.week}T12:00:00Z`).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})} {p.partial?'· in corso':''}</strong><span>Volume: {loadNumber(p.km)} km</span><span>Riferimento 4 sett.: {p.baselineKm==null?'—':`${loadNumber(p.baselineKm)} km`}</span><span>Tempo: {loadNumber(p.hours,2)} h · Corse: {p.runs}</span><span>Rapporto: {p.ratio==null?'—':`${loadNumber(p.ratio,2)}×`}</span><span>Variazione sett.: {p.deltaPct==null?'—':`${p.deltaPct>0?'+':''}${loadNumber(p.deltaPct)}%`}</span></div>;
+  return <div className="load-tooltip"><strong>Settimana del {new Date(`${p.week}T12:00:00Z`).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})} {p.partial?'· incompleta':''}</strong><span>Volume: {loadNumber(p.km)} km{p.distanceCount != null ? ` · ${p.distanceCount}/${p.runs} distanze` : ''}</span><span>Riferimento 4 sett.: {p.baselineKm==null?'—':`${loadNumber(p.baselineKm)} km`}</span><span>Tempo: {loadNumber(p.hours,2)} h{p.durationCount != null ? ` · ${p.durationCount}/${p.runs} durate` : ''} · Corse: {p.runs}</span><span>Rapporto: {p.ratio==null?'—':`${loadNumber(p.ratio,2)}×`}</span><span>Variazione sett.: {p.deltaPct==null?'—':`${p.deltaPct>0?'+':''}${loadNumber(p.deltaPct)}%`}</span></div>;
 }
 /* V3.1.1 CHART USABILITY */
 /* V3.1.2 CARTESIAN LOAD CHART */

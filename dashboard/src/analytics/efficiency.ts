@@ -13,7 +13,8 @@ export function runPace(row: ActivityRow): number | null {
 export function efficiency(rows: ActivityRow[]) {
   return rows.flatMap(row => {
     const pace = runPace(row);
-    if (!isRun(row) || !validDate(row.date) || !positive(pace) || !positive(row.average_hr) || !positive(row.distance_m)) return [];
+    if (!isRun(row) || !validDate(row.date) || !positive(pace) || !positive(row.average_hr) || !positive(row.distance_m) ||
+        row.average_hr < 20 || row.average_hr > 250 || pace < 100 || pace > 3600) return [];
     const speed = 3600 / pace;
     const index = speed / row.average_hr;
     if (!positive(speed) || !positive(index)) return [];

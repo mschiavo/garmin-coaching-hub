@@ -29,7 +29,7 @@ export function recovery(rows: DailyRow[], period: Period) {
     const latest = selected.at(-1);
     const history = latest ? days.filter(day => inside(day.date, windowEnding(shift(latest.date, -1), 28))) : [];
     const baseline = history.length >= 14 ? median(history.map(day => day.value)) : null;
-    const delta = latest && positive(baseline) ? latest.value - baseline : null;
+    const delta = latest && baseline !== null ? latest.value - baseline : null;
     const percent = delta !== null && positive(baseline) ? 100 * (delta / baseline) : null;
     return { ...metric, latest, baseline, baselineCount: history.length, count: selected.length, delta,
       percent: Number.isFinite(percent) ? percent : null };

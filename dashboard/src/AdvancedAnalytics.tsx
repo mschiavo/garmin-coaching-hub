@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plot, color } from './charts';
-import { horizon, inside, lastCompleteWeek, shift, weeks, type ActivityRow, type DailyRow, type Period } from './analytics/dates';
+import { extendedFields, horizon, inside, lastCompleteWeek, shift, weeks, type ActivityRow, type DailyRow, type Period } from './analytics/dates';
 import { cohortKey, distanceLabels, efficiency, efficiencyChange, weeklyEfficiency, type Cohort } from './analytics/efficiency';
 import { bestActivities, projectRace, raceDistances } from './analytics/performance';
+import type { Covered } from './analytics/coverage';
 import { recovery, recoveryTrend } from './analytics/recovery';
 import { advancedLoad, coverageNote, loadDistribution, loadTotals } from './analytics/load';
 import { format, reportMarkdown, weeklyReport } from './analytics/weeklyReport';
@@ -21,7 +22,7 @@ const duration = (seconds: number) => {
 };
 
 function Totals({ label, totals }: { label: string; totals: ReturnType<typeof loadTotals> }) {
-  return <li><strong>{label}</strong> · {format(totals.km)} km ({totals.distanceCount}/{totals.runs}) · {format(totals.hours)} h ({totals.durationCount}/{totals.runs}) · {totals.runs} corse · {totals.active} giorni attivi</li>;
+  return <li><strong>{label}</strong>{!totals.distanceComplete || !totals.durationComplete ? ' · somma registrata parziale' : ''} · {format(totals.km)} km ({totals.distanceCount}/{totals.runs}) · {format(totals.hours)} h ({totals.durationCount}/{totals.runs}) · {totals.runs} corse · {totals.active} giorni attivi</li>;
 }
 
 function downloadReport(week: string, markdown: string) {
@@ -33,8 +34,8 @@ function downloadReport(week: string, markdown: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function AdvancedAnalytics({ activities, daily, range, today }: {
-  activities: ActivityRow[]; daily: DailyRow[]; range: string; today: string;
+export function AdvancedAnalytics({ activities, daily, range, today, requested, covered }:  {
+  activities: ActivityRow[]; daily: DailyRow[]; range: string; today: string; requested: Period | null; covered: Covered;
 }) {
   const observed = useMemo(() => horizon(activities, daily, today), [activities, daily, today]);
   const candidates = useMemo(() => efficiency(activities).filter(run => run.cohort.distance > 0 && run.row.date <= today), [activities, today]);
@@ -43,7 +44,8 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
   const [distance, setDistance] = useState('');
   const [heart, setHeart] = useState('');
   const [race, setRace] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmation, setConfirmed] = useState<string | null>(null);
+  useEffect(() => setConfirmed(null), [activities, requested, range]);
   const [week, setWeek] = useState('');
   const [metricKey, setMetricKey] = useState('hrv');
 
@@ -53,12 +55,12 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
         {views.map(name => <option key={name}>{name}</option>)}
       </select></label>
     </div>
-    {observed ? renderModule(observed) : <p className="panel empty">Nessun dato disponibile per Advanced Analytics.</p>}
+    {observed || requested ? renderModule((observed ?? requested)!) : <p className="panel empty">Nessun dato disponibile per Advanced Analytics.</p>}
   </section>;
 
   function renderModule(archive: Period) {
-    const period = { start: range === 'all' ? archive.start : shift(archive.end, 1 - Number(range)), end: archive.end };
-    const lastWeek = lastCompleteWeek(archive.end, today);
+    const period = requested ?? { start: range === 'all' ? archive.start : shift(archive.end, 1 - Number(range)), end: archive.end };
+    const lastWeek = lastCompleteWeek(period.end, today);
     const selected = activities.filter(row => inside(row.date, period));
     const typeCandidates = candidates.filter(run => run.cohort.type === type && inside(run.row.date, period));
     const distances = [...new Set(typeCandidates.map(run => run.cohort.distance))].sort((a, b) => a - b);
@@ -97,14 +99,19 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
 
     if (view === 'Efficienza') {
       const change = efficiencyChange(runs, lastWeek);
+      const recentCovered = covered({ start: shift(lastWeek, -21), end: shift(lastWeek, 6) });
+      const previousCovered = covered({ start: shift(lastWeek, -49), end: shift(lastWeek, -22) });
       const points = runs.filter(run => inside(run.row.date, period)).map(run => ({ label: run.row.date, pace: run.pace, hr: run.hr }));
       content = <>{filters}<p>{points.length} {points.length === 1 ? 'corsa valida' : 'corse valide'}. La durata usata proviene dal riepilogo Garmin. L’indice divide velocità registrata (km/h) per FC media (bpm). Terreno, meteo, dislivello e pause possono influire sul confronto.</p>
         <p>Quattro settimane concluse al {shift(lastWeek, 6)}: {change.recent} corse valide · quattro precedenti: {change.previous}.
-          {change.change === null ? ' Confronto indisponibile: servono almeno 3 corse valide in ciascuna finestra della stessa coorte.' : ` Variazione della mediana: ${format(change.change)}%.`}</p>
+          {change.change === null ? ' Confronto indisponibile: servono almeno 3 corse valide in ciascuna finestra della stessa coorte.' : ` Variazione ${recentCovered && previousCovered ? 'della mediana' : 'descrittiva e provvisoria'}: ${format(change.change)}%.`}</p>
+        <p>Copertura attività delle finestre · recente {recentCovered ? 'verificata' : 'insufficiente'} · precedente {previousCovered ? 'verificata' : 'insufficiente'}.</p>
         <div className="charts">{chart('Ritmo e FC media', points, 'hr', 'bpm', 'Un punto per attività', 'scatter')}{weeklyChart('index', 'Efficienza settimanale', 'km/h per bpm')}</div>{counts}</>;
     } else if (view === 'Prestazioni') {
       const entries = selected.filter(row => row.type === type && projectRace(row, (row.distance_m ?? 0) / 1000) !== null).sort((a, b) => b.date.localeCompare(a.date));
       const reference = entries.find(row => String(row.id) === race);
+      const signature = reference ? JSON.stringify([reference.id,reference.date,reference.distance_m,reference.duration_s,reference.type]) : null;
+      const confirmed = signature !== null && confirmation === signature;
       const best = bestActivities(selected.filter(row => row.type === type));
       content = <>{filters}<div className="panel advanced-panel"><h3>Migliori attività registrate</h3>
         <ul>{([
@@ -113,18 +120,23 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
           ['Ritmo più veloce', best.fastest, (v: number) => `${format(v, 1)} s/km`],
         ] as const).map(([label, result, value]) => <li key={label}>{label} · {result ? `${value(result.value)} · ${result.row.date} · ${result.row.type}` : 'Indisponibile'}</li>)}</ul>
         <h3>Proiezioni Riegel</h3>
-        <div className="advanced-controls"><label>Attività di riferimento <select value={reference ? race : ''} onChange={event => { setRace(event.target.value); setConfirmed(false); }}>
+        <div className="advanced-controls"><label>Attività di riferimento <select value={reference ? race : ''} onChange={event => { setRace(event.target.value); setConfirmed(null); }}>
           <option value="">Scegli una prestazione</option>
           {entries.map(row => <option key={row.id} value={row.id}>{row.date} · {format((row.distance_m ?? 0) / 1000)} km · {duration(row.duration_s ?? 0)} · {row.name}</option>)}
         </select></label></div>
-        {reference && <label className="advanced-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> Confermo che questa attività è una prestazione di riferimento rappresentativa.</label>}
+        {reference && <label className="advanced-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked ? signature : null)} /> Confermo che questa attività è una prestazione di riferimento rappresentativa.</label>}
         <p>Preferisci una gara o prova massimale su strada. T₂ = T₁ × (D₂ / D₁)^1,06. Il modello offre tempi indicativi. La prestazione individuale può variare.</p>
         {!reference || !confirmed ? <p>Seleziona e conferma una prestazione per calcolare le proiezioni.</p>
           : <ul>{raceDistances.map(target => {
             const time = projectRace(reference, target);
             return <li key={target}>{format(target, 4)} km · {time === null ? 'Indisponibile: rapporto distanze oltre 2,5×' : duration(time)}</li>;
           })}</ul>}
-      </div><div className="charts">{weeklyChart('pace', 'Ritmo settimanale', 's/km')}{weeklyChart('hr', 'FC media settimanale', 'bpm')}</div>{counts}</>;
+      </div><div className="charts">{weeklyChart('pace', 'Ritmo settimanale', 's/km')}{weeklyChart('hr', 'FC media settimanale', 'bpm')}</div>{counts}
+      <div className="charts">{extendedFields.slice(0, 6).map(([key, label, unit]) => {
+        const points = selected.filter(row => row.type === type && typeof row[key] === 'number')
+          .map(row => ({ label: row.date, value: row[key] }));
+        return points.length ? <div key={key}>{chart(label, points, 'value', unit, `${points.length} attività con misura valida`)}</div> : null;
+      })}</div></>;
     } else if (view === 'Recupero') {
       const items = recovery(daily, period);
       const metric = items.find(item => item.key === metricKey) ?? items[0];
@@ -132,10 +144,10 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
       const last = trend.at(-1);
       content = <><div className="charts">{items.map(item => <section className="panel advanced-panel" key={item.key}>
         <h3>{item.label}</h3>
-        {item.latest ? <><p><strong>{format(item.latest.value)} {item.unit}</strong> · {item.latest.date} · {item.count} giorni validi nel periodo</p>
+        {item.latest ? <><p><strong>{format(item.latest.value)} {item.unit}</strong> · {item.latest.date}{item.latest.date < shift(period.end, -6) ? ' · misura precedente agli ultimi 7 giorni' : ''} · {item.count} giorni validi nel periodo</p>
           <p>Mediana personale precedente: {format(item.baseline)} {item.unit} ({item.baselineCount}/28 giorni, minimo 14).</p>
           {item.delta !== null ? <p>Differenza: <strong>{item.delta > 0 ? '+' : ''}{format(item.delta)} {item.unit}</strong>
-            {item.key === 'sleep_h' && ` (${format(item.delta * 60, 0)} min)`}{item.percent !== null && ` · ${format(item.percent)}%`}</p> : <p>Differenza indisponibile: serve una mediana positiva.</p>}</>
+            {item.key === 'sleep_h' && ` (${format(item.delta * 60, 0)} min)`}{item.percent !== null && ` · ${format(item.percent)}%`}</p> : <p>Differenza indisponibile: servono almeno 14 misure valide.</p>}</>
           : <p>Nessuna misura valida nel periodo.</p>}
       </section>)}</div>
         <div className="advanced-controls"><label>Metrica recupero <select value={metricKey} onChange={event => setMetricKey(event.target.value)}>
@@ -144,7 +156,7 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
         {chart(`Mediana mobile · ${metric.label}`, trend.some(point => point.value !== null) ? trend.map(point => ({ ...point, label: point.date })) : [], 'value', metric.unit,
           `Minimo 4 giorni validi su 7 · ${period.end}: ${last?.count ?? 0}/7 · Ultima misura: ${metric.latest?.date ?? 'indisponibile'}`)}</>;
     } else if (view === 'Carico avanzato') {
-      const result = advancedLoad(activities, period, archive);
+      const result = advancedLoad(activities, period, covered, today);
       const distribution = loadDistribution(activities, period);
       const complete = lastWeek >= period.start && lastWeek >= archive.start ? lastWeek : null;
       content = <><div className="panel advanced-panel"><h3>Finestre di carico registrato</h3>
@@ -152,19 +164,19 @@ export function AdvancedAnalytics({ activities, daily, range, today }: {
         <ul><Totals label="Periodo selezionato" totals={result.selected}/>
           <Totals label={`7 giorni · ${result.last7.start} – ${result.last7.end}`} totals={result.totals7}/>
           <Totals label={`28 giorni · ${result.last28.start} – ${result.last28.end}`} totals={result.totals28}/>
-          {complete && <Totals label={`Ultima settimana completa · ${complete}`} totals={loadTotals(activities, { start: complete, end: shift(complete, 6) })}/>}
+          {complete && <Totals label={`Ultima settimana completa · ${complete}`} totals={loadTotals(activities, { start: complete, end: shift(complete, 6) }, covered)}/>}
         </ul>
         {!complete && <p>Ultima settimana completa indisponibile nell’intervallo osservato.</p>}
         {shift(lastWeek, 6) < period.end && <p>Settimana più recente parziale al {period.end}.</p>}
-        <p>Riferimento {result.preceding.start} – {result.preceding.end}: {format(result.baseline)} km/settimana. Rapporto: {result.ratio === null ? 'indisponibile (orizzonte insufficiente, valori mancanti o riferimento zero)' : `${format(result.ratio)}×`}.</p>
+        <p>Riferimento {result.preceding.start} – {result.preceding.end}: {format(result.baseline)} km/settimana. Rapporto: {result.ratio === null ? result.reason : `${format(result.ratio)}×`}.</p>
       </div><div className="charts">
         {chart('Corse per distanza', result.selected.distanceCount ? distribution.distances : [], 'count', 'corse', undefined, 'bar')}
         {chart('Corse per ritmo', distribution.paces.some(item => item.count) ? distribution.paces : [], 'count', 'corse', undefined, 'bar')}
       </div></>;
     } else {
-      const options = weeks({ start: period.start < archive.start ? archive.start : period.start, end: period.end }).reverse();
+      const options = weeks(requested ?? { start: period.start < archive.start ? archive.start : period.start, end: period.end }).reverse();
       const chosen = options.includes(week) ? week : options.includes(lastWeek) ? lastWeek : options[0];
-      const report = weeklyReport(activities, daily, runs, chosen, period, archive, today, selectedKey);
+      const report = weeklyReport(activities, daily, runs, chosen, period, requested ?? archive, today, selectedKey, covered);
       const markdown = reportMarkdown(report, cohortLabel);
       const blocks = markdown.trim().split('\n\n');
       content = <>{filters}<div className="advanced-controls">

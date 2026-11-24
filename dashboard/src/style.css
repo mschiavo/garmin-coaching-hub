@@ -77,3 +77,13 @@
 .advanced-panel p, .advanced-panel ul { margin: 10px 0; }
 .advanced-panel ul { padding-inline-start: 20px; }
 .advanced-confirm { display: flex; align-items: start; gap: 8px; margin-top: 12px; }
+
+.quality-table { overflow-x: auto; margin-block: 1rem; }
+.quality-table table { min-width: 34rem; }
+.quality-table caption { text-align: left; padding: .6rem; }
+.quality-table th, .quality-table td { padding: .6rem; text-align: left; }
+.quality-table:focus-visible { outline: 2px solid currentColor; }
+.advanced-panel dt { font-weight: 600; }
+.advanced-panel dd { margin: 0 0 .65rem; }
+.logout-mobile { display: none; }
+@media (max-width: 650px) { .logout-mobile { display: inline-flex; } }

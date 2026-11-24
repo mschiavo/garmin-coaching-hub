@@ -18,6 +18,6 @@ export function bestActivities(rows: ActivityRow[]) {
     runs.flatMap(row => {
       const result = value(row);
       return positive(result) ? [{ row, value: result }] : [];
-    }).sort((a, b) => direction * (a.value - b.value) || a.row.date.localeCompare(b.row.date) || a.row.id - b.row.id)[0];
+    }).sort((a, b) => direction * (a.value - b.value) || a.row.date.localeCompare(b.row.date) || String(a.row.id).localeCompare(String(b.row.id), 'en', { numeric: true }))[0];
   return { longest: best(row => row.distance_m, -1), duration: best(row => row.duration_s, -1), fastest: best(runPace, 1) };
 }

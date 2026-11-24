@@ -77,7 +77,11 @@ test('recovery uses 14 previous days, retains eligible zero and resolves duplica
   assert.equal(result[0].delta, 15.5);
   assert.equal(result[0].baselineCount, 14);
   assert.equal(result[3].latest.value, 0);
-  assert.equal(result[3].delta, null);
+  assert.equal(result[3].delta, 0);
+  assert.equal(result[3].percent, null);
+  const fromZero = recovery([...previous, day(latest.date, { stress: 10 })], period)[3];
+  assert.equal(fromZero.delta, 10);
+  assert.equal(fromZero.percent, null);
   assert.equal(recovery([...previous.slice(1), latest], period)[0].baseline, null);
   const trend = recoveryTrend(previous.slice(0, 4), metrics[0], { start: '2026-01-03', end: '2026-01-08' });
   assert.deepEqual(trend.map(row => row.count), [3, 4, 4, 4, 4, 3]);
@@ -89,7 +93,8 @@ test('advanced load handles inclusive windows, history outside the selected peri
   const period = { start: '2026-02-04', end };
   const observed = { start: '2026-01-01', end };
   const rows = ['2026-01-04', '2026-01-05', '2026-02-01', '2026-02-02', '2026-02-08', '2026-02-09'].map(date => activity(date));
-  const result = advancedLoad(rows, period, observed);
+  const covered = ({start, end}) => start >= observed.start && end <= observed.end;
+  const result = advancedLoad(rows, period, covered);
   assert.equal(result.last7.start, '2026-02-02');
   assert.equal(result.last28.start, '2026-01-12');
   assert.deepEqual(result.preceding, { start: '2026-01-05', end: '2026-02-01' });
@@ -98,8 +103,8 @@ test('advanced load handles inclusive windows, history outside the selected peri
   assert.equal(result.totals28.active, 3);
   assert.equal(result.baseline, 5);
   assert.equal(result.ratio, 4);
-  assert.equal(advancedLoad([], period, observed).ratio, null);
-  assert.equal(advancedLoad(rows, period, { start: '2026-01-06', end }).baseline, null);
+  assert.equal(advancedLoad([], period, covered).ratio, null);
+  assert.equal(advancedLoad(rows, period, ({ start }) => start >= '2026-01-06').baseline, null);
   assert.equal(loadDistribution(rows, period).distances[3].count, 1);
 });
 
@@ -109,7 +114,7 @@ test('weekly report is reproducible and exposes partial and empty weeks', () => 
   const rows = [activity(week), activity('2026-01-26', { distance_m: 5000 })];
   const daily = [day(week)];
   const runs = efficiency(rows);
-  const report = weeklyReport(rows, daily, runs, week, observed, observed, '2026-02-09', cohortKey(runs[0].cohort));
+  const report = weeklyReport(rows, daily, runs, week, observed, observed, '2026-02-09', cohortKey(runs[0].cohort), ({start,end}) => start >= observed.start && end <= observed.end);
   assert.equal(report.partial, false);
   assert.equal(report.prior.km, 5);
   assert.equal(report.fourKm, 1.25);

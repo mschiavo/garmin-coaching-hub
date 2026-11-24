@@ -34,6 +34,7 @@ test('analytics navigation, charts, report export and empty state use only synth
         return route.fulfill({ json: { access_token: accessToken, refresh_token: 'synthetic-token', expires_in: 3600, token_type: 'bearer',
           user: { id: 'synthetic-user', aud: 'authenticated', email: 'runner@example.invalid', app_metadata: {}, user_metadata: {}, created_at: fixture.updated_at } } });
       }
+      if (url.pathname === '/rest/v1/rpc/dashboard_metadata_v2') return route.fulfill({ status: 404, json: { code: 'PGRST202' } });
       if (url.pathname === '/rest/v1/rpc/dashboard_data') {
         return route.fulfill({ json: empty ? { activities: [], daily: [], updated_at: null } : fixture });
       }
@@ -50,6 +51,7 @@ test('analytics navigation, charts, report export and empty state use only synth
   const module = analytics.getByLabel('Modulo');
   const type = analytics.getByLabel('Tipo di corsa');
   await page.getByLabel('Intervallo').selectOption('30');
+  await expect(page.getByText(/API legacy · massimo 2.000 righe/)).toBeVisible();
   await expect(analytics.getByText(/2 corse valide\./)).toBeVisible();
   const scatter = analytics.locator('.plot').filter({ has: page.getByRole('heading', { name: 'Ritmo e FC media' }) });
   await expect(scatter.getByText('Asse X · Ritmo (s/km)')).toBeVisible();
@@ -73,6 +75,9 @@ test('analytics navigation, charts, report export and empty state use only synth
   await analytics.getByLabel('Attività di riferimento').selectOption('2');
   await analytics.getByRole('checkbox').check();
   await expect(analytics.getByText('5 km · 0 h 28 min 47 s', { exact: true })).toBeVisible();
+  await analytics.getByLabel('Attività di riferimento').selectOption('3');
+  await expect(analytics.getByRole('checkbox')).not.toBeChecked();
+  await expect(analytics.getByText(/Seleziona e conferma/)).toBeVisible();
 
   await module.selectOption('Recupero');
   await expect(analytics.getByRole('heading', { name: 'Mediana mobile · HRV' })).toBeVisible();
@@ -97,7 +102,7 @@ test('analytics navigation, charts, report export and empty state use only synth
   const { readFile } = await import('node:fs/promises');
   const markdown = await readFile(path, 'utf8');
   expect(markdown).toContain('21 km (2/2 distanze valide)');
-  expect(markdown).toContain('completezza import non verificabile');
+  expect(markdown).toContain('Evidenza attività per tutti i giorni del periodo: incompleta o sconosciuta');
   expect(markdown).not.toMatch(/NaN|Infinity/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(isMobile ? 375 : 1440);
 

@@ -1,9 +1,23 @@
-export type ActivityRow = { id: number; date: string; type: string; name: string; distance_m: number | null; duration_s: number | null; average_hr: number | null };
+export const extendedFields = [
+  ['elevation_gain_m', 'Dislivello positivo', 'm'],
+  ['elevation_loss_m', 'Dislivello negativo', 'm'],
+  ['cadence_spm', 'Cadenza media', 'passi/min'],
+  ['power_w', 'Potenza media', 'W'],
+  ['temperature_c', 'Temperatura media', '°C'],
+  ['fastest_1000_s', 'Split Garmin più veloce sui 1.000 m', 's'],
+  ['hr_zone_1_s', 'Tempo in zona FC 1', 's'],
+  ['hr_zone_2_s', 'Tempo in zona FC 2', 's'],
+  ['hr_zone_3_s', 'Tempo in zona FC 3', 's'],
+  ['hr_zone_4_s', 'Tempo in zona FC 4', 's'],
+  ['hr_zone_5_s', 'Tempo in zona FC 5', 's'],
+] as const;
+export type ActivityRow = { id: number | string; date: string; type: string | null; name: string | null; distance_m: number | null; duration_s: number | null; average_hr: number | null } &
+  Partial<Record<typeof extendedFields[number][0], number | null>>;
 export type DailyRow = { date: string; sleep_h: number | null; hrv: number | null; resting_hr: number | null; stress: number | null; bb_charged: number | null; bb_drained: number | null; steps: number | null };
 export type Period = { start: string; end: string };
 
 export function validDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < '0001-01-01') return false;
   const date = new Date(value);
   return Number.isFinite(+date) && date.toISOString().slice(0, 10) === value;
 }
@@ -18,7 +32,7 @@ export const monday = (date: string) => shift(date, -((new Date(date).getUTCDay(
 export const inside = (date: string, { start, end }: Period) => date >= start && date <= end;
 export const windowEnding = (end: string, length: number): Period => ({ start: shift(end, 1 - length), end });
 export const positive = (value: number | null): value is number => value !== null && Number.isFinite(value) && value > 0;
-export const isRun = (activity: ActivityRow) => activity.type === 'running' || activity.type === 'trail_running';
+export const isRun = (activity: ActivityRow): activity is ActivityRow & { type: 'running' | 'trail_running' } => activity.type === 'running' || activity.type === 'trail_running';
 
 export function weeks(period: Period): string[] {
   if (!validDate(period.start) || !validDate(period.end) || period.start > period.end) return [];
