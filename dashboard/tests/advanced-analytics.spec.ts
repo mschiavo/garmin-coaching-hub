@@ -101,8 +101,9 @@ test('analytics navigation, charts, report export and empty state use only synth
   await download.saveAs(path);
   const { readFile } = await import('node:fs/promises');
   const markdown = await readFile(path, 'utf8');
-  expect(markdown).toContain('21 km (2/2 distanze valide)');
-  expect(markdown).toContain('Evidenza attività per tutti i giorni del periodo: incompleta o sconosciuta');
+  expect(markdown).toContain('21 km registrati (2/2 distanze valide) · somma parziale');
+  expect(markdown).toContain('Copertura attività per tutti i giorni del periodo: incompleta o sconosciuta');
+  expect(markdown).toContain('Differenza settimanale omessa');
   expect(markdown).not.toMatch(/NaN|Infinity/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(isMobile ? 375 : 1440);
 

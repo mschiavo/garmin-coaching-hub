@@ -31,3 +31,6 @@ jobs:
           IMPORT_MONTH: ${{ inputs.month }}
           GARMIN_TIMEZONE: ${{ vars.GARMIN_TIMEZONE || 'Europe/Rome' }}
         run: python import_garmin_history.py
+      - name: Segnala un'importazione non completata
+        if: ${{ failure() }}
+        run: echo 'Import con errori. Il riepilogo riporta gli esiti aggregati disponibili.' >> "$GITHUB_STEP_SUMMARY"

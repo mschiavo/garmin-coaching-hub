@@ -7,8 +7,8 @@ import sys
 import psycopg
 from garmin_personal_api import GarminPersonalApiClient
 
-from garmin_coverage import daily_import, error_code, repair_plan, schema_version, writer
-from sync_garmin import TIMEZONE, authenticate_garmin, fail_if_missing_env, import_activities
+from garmin_coverage import ImportJob, daily_import, error_code, repair_plan, schema_version, writer
+from sync_garmin import TIMEZONE, authenticate_garmin, fail_if_missing_env, import_activities, run_job
 
 
 def plan(conn, start, end):
@@ -36,24 +36,26 @@ def main():
                 tasks = plan(conn, args.start, args.end)
         print(json.dumps([{"date": day.isoformat(), "source": source} for day, source in tasks]))
         return
+    return run_job(lambda job: execute(job, database_url, args.start, args.end, today))
+
+
+def execute(job: ImportJob, database_url, start, end, today):
     with writer(database_url) as (conn, version):
-        tasks = plan(conn, args.start, args.end)
+        tasks = plan(conn, start, end)
         if not tasks:
             return
         token = authenticate_garmin(fail_if_missing_env("GARMIN_PERSONAL_API_KEY"))
-        incomplete = 0
         with GarminPersonalApiClient(token) as garmin:
             for day, source in tasks:
                 if source == "activities":
-                    import_activities(conn, version, garmin, day, day, today)
+                    job.run(source, day, day, lambda: import_activities(conn, version, garmin, day, day, today))
                 else:
-                    incomplete += not daily_import(conn, version, garmin, day, source, today)
-        print(f"Fonti esaminate: {len(tasks)}. Fonti giornaliere incomplete: {incomplete}.")
+                    job.run(source, day, day, lambda: daily_import(conn, version, garmin, day, source, today))
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except Exception as exc:
         print(f"Riparazione interrotta ({error_code(exc)}).", file=sys.stderr)
         sys.exit(1)

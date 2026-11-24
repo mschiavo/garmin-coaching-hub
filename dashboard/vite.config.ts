@@ -1,7 +1,11 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { isPublishableKey } from './src/supabaseKey';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const key = loadEnv(mode, process.cwd()).VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+  if (key && !isPublishableKey(key)) throw new Error('Configurare una chiave Supabase publishable o anon.');
+  return {
   plugins: [react()],
   base: process.env.GITHUB_PAGES_BASE || '/',
   build: {
@@ -39,4 +43,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });

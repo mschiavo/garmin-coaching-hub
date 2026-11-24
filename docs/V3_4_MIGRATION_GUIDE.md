@@ -1,5 +1,7 @@
 # Installazione e upgrade V3.4
 
+Per V3.4.1, seguire il [runbook dedicato](V3_4_1_STAGING_RUNBOOK.md) e applicare 0035 dopo 0034. L’estensione conserva schema 34 e API V2.
+
 Eseguire questo percorso in staging con progetto separato e fixture sintetiche. L’installazione è personale e il database di staging deve avere utenti, allowlist e credenziali distinti dalla produzione.
 
 ## Ordine dei file da revisionare

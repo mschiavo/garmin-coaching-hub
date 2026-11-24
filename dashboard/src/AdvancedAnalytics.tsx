@@ -99,12 +99,20 @@ export function AdvancedAnalytics({ activities, daily, range, today, requested, 
 
     if (view === 'Efficienza') {
       const change = efficiencyChange(runs, lastWeek);
-      const recentCovered = covered({ start: shift(lastWeek, -21), end: shift(lastWeek, 6) });
-      const previousCovered = covered({ start: shift(lastWeek, -49), end: shift(lastWeek, -22) });
+      const recentWindow = { start: shift(lastWeek, -21), end: shift(lastWeek, 6) };
+      const previousWindow = { start: shift(lastWeek, -49), end: shift(lastWeek, -22) };
+      const recentCovered = covered(recentWindow);
+      const previousCovered = covered(previousWindow);
+      const valid = new Set<ActivityRow>(efficiency(activities).map(run => run.row));
+      const completeMeasures = activities.every(row => row.type !== type ||
+        (!inside(row.date, recentWindow) && !inside(row.date, previousWindow)) || valid.has(row));
       const points = runs.filter(run => inside(run.row.date, period)).map(run => ({ label: run.row.date, pace: run.pace, hr: run.hr }));
       content = <>{filters}<p>{points.length} {points.length === 1 ? 'corsa valida' : 'corse valide'}. La durata usata proviene dal riepilogo Garmin. L’indice divide velocità registrata (km/h) per FC media (bpm). Terreno, meteo, dislivello e pause possono influire sul confronto.</p>
         <p>Quattro settimane concluse al {shift(lastWeek, 6)}: {change.recent} corse valide · quattro precedenti: {change.previous}.
-          {change.change === null ? ' Confronto indisponibile: servono almeno 3 corse valide in ciascuna finestra della stessa coorte.' : ` Variazione ${recentCovered && previousCovered ? 'della mediana' : 'descrittiva e provvisoria'}: ${format(change.change)}%.`}</p>
+          {!recentCovered || !previousCovered ? ' Confronto omesso per copertura insufficiente.' :
+            !completeMeasures ? ' Confronto omesso per misure mancanti o anomale.' :
+            change.change === null ? ' Confronto indisponibile. Servono almeno 3 corse valide in ciascuna finestra della stessa coorte.' :
+            ` Variazione della mediana ${format(change.change)}%.`}</p>
         <p>Copertura attività delle finestre · recente {recentCovered ? 'verificata' : 'insufficiente'} · precedente {previousCovered ? 'verificata' : 'insufficiente'}.</p>
         <div className="charts">{chart('Ritmo e FC media', points, 'hr', 'bpm', 'Un punto per attività', 'scatter')}{weeklyChart('index', 'Efficienza settimanale', 'km/h per bpm')}</div>{counts}</>;
     } else if (view === 'Prestazioni') {

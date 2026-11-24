@@ -2,7 +2,7 @@ import { inside, isRun, positive, shift, validDate, windowEnding, type ActivityR
 import type { Covered } from './coverage.ts';
 import { distanceBand, distanceLabels, runPace } from './efficiency.ts';
 
-export const coverageNote = 'Le somme descrivono le registrazioni. La copertura indica l’ultima evidenza disponibile dalla fonte.';
+export const coverageNote = 'Le somme descrivono le registrazioni. I confronti richiedono acquisizione conclusa e archivio verificato.';
 
 export function loadTotals(rows: ActivityRow[], period: Period, covered: Covered = () => false) {
   const runs = rows.filter(row => isRun(row) && validDate(row.date) && inside(row.date, period));

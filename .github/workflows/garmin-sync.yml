@@ -51,3 +51,6 @@ jobs:
           SYNC_DAYS: ${{ inputs.days || '3' }}
           GARMIN_TIMEZONE: ${{ vars.GARMIN_TIMEZONE || 'Europe/Rome' }}
         run: python sync_garmin.py
+      - name: Segnala un'importazione non completata
+        if: ${{ failure() }}
+        run: echo 'Import con errori. Il riepilogo riporta gli esiti aggregati disponibili.' >> "$GITHUB_STEP_SUMMARY"

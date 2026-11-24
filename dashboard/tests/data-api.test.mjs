@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readArchive } from '../src/dataApi.ts';
-import { indexCoverage, coverageState } from '../src/analytics/coverage.ts';
-import { extendedFields } from '../src/analytics/dates.ts';
+import { indexCoverage, coverageState, reliability } from '../src/analytics/coverage.ts';
+import { extendedFields, shift } from '../src/analytics/dates.ts';
 import { advancedLoad } from '../src/analytics/load.ts';
+import { isPublishableKey } from '../src/supabaseKey.ts';
 
 const today = '2026-03-15';
 const date = '2026-03-14';
@@ -20,6 +21,15 @@ const meta = {
 };
 const success = data => ({ data, error: null, status: 200 });
 const error = (code, status) => ({ data: null, error: { code }, status });
+
+test('browser accepts only publishable keys and legacy anon JWTs', () => {
+  const syntheticToken = role => `e30.${Buffer.from(JSON.stringify({ role })).toString('base64url')}.synthetic`;
+  assert.equal(isPublishableKey('sb_publishable_synthetic'), true);
+  assert.equal(isPublishableKey(syntheticToken('anon')), true);
+  for (const key of ['sb_secret_synthetic', syntheticToken('service_role'), syntheticToken('authenticated'), 'garbage']) {
+    assert.equal(isPublishableKey(key), false);
+  }
+});
 function mock(kind, args) {
   if (kind === 'dashboard_metadata_v2') return success(meta);
   const source = kind === 'dashboard_activities_v2' ? activities : [];
@@ -76,7 +86,7 @@ test('restarts only once for changed revisions and discards aborted responses', 
   for (const times of [1,2]) {
     let changes = 0;
     const rpc = (name,args) => name === 'dashboard_activities_v2' && args.p_after_key && changes < times
-      ? (++changes, error('40001',409)) : mock(name,args);
+      ? (++changes, error('40001',500)) : mock(name,args);
     if (times === 1) assert.equal((await readArchive(rpc,'all',today,signal())).activities.length,2501);
     else await assert.rejects(() => readArchive(rpc,'all',today,signal()), { code: 'revision' });
     assert.equal(changes,times);
@@ -91,13 +101,24 @@ test('restarts only once for changed revisions and discards aborted responses', 
 
 test('concluded activity coverage preserves last evidence after failure and requires matching data', () => {
   const period = { start: date, end: date };
-  const blank = { activities: [], daily: [], acquired: period, metadata: meta, coverage: [] };
+  const blank = { activities: [], daily: [], acquired: period, metadata: { ...meta, reliability_version:1 }, coverage: [] };
   assert.equal(coverageState(undefined),'unknown');
   assert.equal(indexCoverage(blank,today)(period),false);
-  const sample = { date, source:'activities', attempt_state:'failed', evidence:'success_empty', item_count:0 };
+  const sample = { date, source:'activities', attempt_state:'failed', evidence:'success_empty', item_count:0,
+    observed_count:0, missing_count:0, reconciliation:'verified', succeeded_at:'2026-03-15T01:00:00Z' };
   const archive = { ...blank, coverage:[sample] };
   assert.equal(coverageState(sample), 'failed');
-  assert.equal(indexCoverage(archive,today)(period),true);
+  assert.equal(indexCoverage(archive,today)(period),false);
+  assert.equal(reliability(sample,date,today,0,true).state,'historical');
+  const verified = { ...archive, coverage:[{ ...sample, attempt_state:'success_empty' }] };
+  assert.equal(indexCoverage(verified,today)(period),true);
+  assert.equal(indexCoverage({ ...verified, metadata:meta },today)(period),false);
+  for (const reconciliation of ['invalidated','conflict']) {
+    const row = { ...verified.coverage[0], reconciliation };
+    assert.equal(reliability(row,date,today,0,true).state,'conflict');
+    assert.equal(indexCoverage({ ...verified, coverage:[row] },today)(period),false);
+  }
+  assert.equal(reliability(undefined,today,today,0,true).state,'partial');
   assert.equal(indexCoverage({ ...archive, activities:[activities[0]] },today)(period),false);
   assert.equal(indexCoverage(archive,date)(period),false);
   assert.equal(indexCoverage({ ...archive, coverage:[{ ...sample, evidence:null, attempt_state:'partial' }] },today)(period),false);
@@ -111,4 +132,23 @@ test('load suppresses ratios for partial transfers and missing distances', () =>
   assert.equal(advancedLoad(runs,period,()=>true).totals7.distanceCount,1);
   assert.equal(advancedLoad(runs.slice(0,2),period,()=>true).ratio,4);
   assert.equal(advancedLoad(runs.slice(0,2),period).ratio,null);
+});
+
+test('the verified archive permits load comparisons and a later failure suppresses them', () => {
+  const period = { start: shift(date, -34), end: date };
+  const runs = [activities[0], { ...activities[1], date: period.start }];
+  const coverage = Array.from({ length: 35 }, (_, offset) => {
+    const day = shift(period.start, offset);
+    const count = Number(runs.some(row => row.date === day));
+    const evidence = count ? 'success_with_data' : 'success_empty';
+    return { date: day, source: 'activities', attempt_state: evidence, evidence, item_count: count,
+      observed_count: count, missing_count: 0, reconciliation: 'verified', succeeded_at: '2026-03-15T01:00:00Z' };
+  });
+  const archive = { activities: runs, daily: [], acquired: period, coverage, metadata: { ...meta, reliability_version: 1 } };
+  assert.equal(advancedLoad(runs, period, indexCoverage(archive, today)).ratio, 4);
+  coverage[0].attempt_state = 'failed';
+  const result = advancedLoad(runs, period, indexCoverage(archive, today));
+  assert.equal(result.ratio, null);
+  assert.equal(result.totals7.km, 5);
+  assert.match(result.reason, /Copertura/);
 });

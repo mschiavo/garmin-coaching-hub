@@ -7,11 +7,14 @@ export type Coverage = {
   date: string; source: Source; attempt_state: Evidence | 'failed' | 'unsupported' | 'partial';
   evidence: Evidence | null; attempted_at: string; succeeded_at: string | null;
   item_count: number | null; quality: string | null; error_code: string | null;
+  reconciliation?: 'verified' | 'conflict' | 'invalidated' | null;
+  observed_count?: number | null; missing_count?: number | null;
 };
 type Cursor = { date: string; key?: string };
 type Extent = { min: string | null; max: string | null; count: number };
 type Metadata = {
   api_version: 2; schema_version: 34; revision: string; activities: Extent; daily: Extent;
+  reliability_version?: 1;
   coverage: Extent; coverage_status: 'available' | 'unknown'; anomalies: { activities: number; daily: number }; updated_at: string | null;
 };
 type Collection = 'activities' | 'daily' | 'coverage';
@@ -60,6 +63,7 @@ async function call(rpc: Rpc, name: string, args: Record<string, unknown>, signa
 function metadata(value: unknown): Metadata {
   const m = value as Metadata;
   if (!m || m.api_version !== 2 || m.schema_version !== 34 ||
+    (m.reliability_version !== undefined && m.reliability_version !== 1) ||
     typeof m.revision !== 'string' || !/^\d{1,19}$/.test(m.revision) ||
     ![m.activities,m.daily,m.coverage].every(e => e && integer(e.count) && dateOrNull(e.min) && dateOrNull(e.max) &&
       (e.min === null ? e.max === null : e.max !== null && e.min <= e.max)) ||
@@ -84,6 +88,8 @@ function cursorFor(kind: Collection, row: ActivityRow | DailyRow | Coverage): Cu
       ![null,'success_with_data','success_empty'].includes(coverage.evidence) ||
       typeof coverage.attempted_at !== 'string' ||
       !(coverage.succeeded_at === null || typeof coverage.succeeded_at === 'string') ||
+      ![undefined,null,'verified','conflict','invalidated'].includes(coverage.reconciliation) ||
+      ![coverage.observed_count,coverage.missing_count].every(n => n == null || integer(n)) ||
       !(coverage.item_count === null || integer(coverage.item_count))) throw new ArchiveError('schema');
     return { date: row.date, key: coverage.source };
   }
@@ -161,7 +167,9 @@ export async function readArchive(
       if (requested.start < shift(end, -15000)) throw new ArchiveError('limit', 'Limite di 15.001 giorni. Scegli un intervallo più breve.');
       const acquired = { start: range === 'all' ? requested.start : shift(requested.start, -Math.max(56, Number(range))), end };
       const m = metadata(await call(rpc, 'dashboard_metadata_v2', { p_start: acquired.start, p_end: end }, signal));
-      if (archive.revision !== m.revision) throw new ArchiveError('revision', 'Archivio aggiornato durante la lettura. Riprova.');
+      if (archive.revision !== m.revision || archive.reliability_version !== m.reliability_version) {
+        throw new ArchiveError('revision', 'Archivio aggiornato durante la lettura. Riprova.');
+      }
       const total = m.activities.count + m.daily.count + m.coverage.count;
       let loaded = 0;
       const progress = (n: number) => notify(loaded += n, total);

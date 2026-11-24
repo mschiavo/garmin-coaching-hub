@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from garmin_personal_api import GarminPersonalApiClient, PersonalApiAuthenticator
-from garmin_coverage import SOURCES, activity_import, daily_import, dates, error_code, json_value, retry, writer
+from garmin_coverage import ImportJob, SOURCES, SearchConflict, activity_import, daily_import, dates, error_code, json_value, retry, writer
 
 TIMEZONE = ZoneInfo(os.environ.get("GARMIN_TIMEZONE", "Europe/Rome"))
 MAX_DAYS = 31
@@ -28,29 +28,49 @@ def authenticate_garmin(api_key):
 
 
 def fetch_activities(garmin, start_date, end_date):
-    activities = []
-    for offset in range(0, 5000, 50):
+    def search(offset):
         page = retry(lambda: garmin.search_activities(
             start=offset, limit=50, start_date=start_date.isoformat(), end_date=end_date.isoformat()))
         if not isinstance(page, list) or len(page) > 50:
             raise TypeError("Formato inatteso in search_activities")
+        return page
+
+    activities = []
+    seen = set()
+    first = None
+    for offset in range(0, 5000, 50):
+        page = search(offset)
+        if first is None:
+            first = page
+        for activity in page:
+            identifier = activity_identifier(activity)
+            if identifier in seen:
+                raise SearchConflict("ID duplicato nella ricerca attività")
+            seen.add(identifier)
         activities.extend(page)
         if len(page) < 50:
+            if offset and search(0) != first:
+                raise SearchConflict("Prima pagina cambiata durante la ricerca")
             return activities
     raise ValueError("Limite paginazione raggiunto")
+
+
+def activity_identifier(activity):
+    if not isinstance(activity, dict):
+        raise TypeError("Formato attività non valido")
+    supplied = activity.get("activityId")
+    if type(supplied) not in (int, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", str(supplied)):
+        raise ValueError("ID attività non valido")
+    identifier = int(supplied)
+    if identifier > 9223372036854775807:
+        raise ValueError("ID attività non valido")
+    return identifier
 
 
 def fetch_activity_details(garmin, activities):
     rows = {}
     for activity in activities:
-        if not isinstance(activity, dict):
-            raise TypeError("Formato attività non valido")
-        supplied_id = activity.get("activityId")
-        if type(supplied_id) not in (int, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", str(supplied_id)):
-            raise ValueError("ID attività non valido")
-        activity_id = int(supplied_id)
-        if activity_id > 9223372036854775807:
-            raise ValueError("ID attività non valido")
+        activity_id = activity_identifier(activity)
         local_start = activity.get("startTimeLocal")
         if not isinstance(local_start, str) or len(local_start) < 19:
             raise ValueError("Data attività mancante")
@@ -74,10 +94,10 @@ def fetch_activity_details(garmin, activities):
 
 
 def import_activities(conn, version, garmin, start, end, today):
-    activity_import(conn, version, garmin, start, end, today, fetch_activities, fetch_activity_details)
+    return activity_import(conn, version, garmin, start, end, today, fetch_activities, fetch_activity_details)
 
 
-def main():
+def main(job):
     days = int(os.environ.get("SYNC_DAYS", "3"))
     if not 1 <= days <= MAX_DAYS:
         raise ValueError("SYNC_DAYS deve essere tra 1 e 31")
@@ -86,15 +106,21 @@ def main():
     with writer(fail_if_missing_env("SUPABASE_DATABASE_URL")) as (conn, version):
         token = authenticate_garmin(fail_if_missing_env("GARMIN_PERSONAL_API_KEY"))
         with GarminPersonalApiClient(token) as garmin:
-            import_activities(conn, version, garmin, start, today, today)
-            incomplete = sum(not daily_import(conn, version, garmin, day, source, today)
-                             for day in dates(start, today) for source in SOURCES)
-    print(f"Giornate richieste: {days}. Fonti giornaliere con dati incompleti: {incomplete}. Schema: {version}.")
+            job.run("activities", start, today, lambda: import_activities(conn, version, garmin, start, today, today))
+            for day in dates(start, today):
+                for source in SOURCES:
+                    job.run(source, day, day, lambda: daily_import(conn, version, garmin, day, source, today))
+
+
+def run_job(operation):
+    job = ImportJob()
+    try:
+        operation(job)
+    except Exception as exc:
+        job.interrupted = True
+        print(f"Import interrotto ({error_code(exc)}).", file=sys.stderr)
+    return job.finish()
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:
-        print(f"Sincronizzazione interrotta ({error_code(exc)}).", file=sys.stderr)
-        sys.exit(1)
+    sys.exit(run_job(main))

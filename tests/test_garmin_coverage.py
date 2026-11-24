@@ -2,8 +2,8 @@ from datetime import date
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from garmin_coverage import SOURCES, dates, retry, validated_metrics
-from sync_garmin import fetch_activities, fetch_activity_details
+from garmin_coverage import SOURCES, ImportJob, Outcome, dates, retry, validated_metrics
+from sync_garmin import fetch_activities, fetch_activity_details, run_job
 import repair_garmin
 
 DAY = date(2024, 2, 29)
@@ -30,14 +30,56 @@ class GarminCoverageTests(TestCase):
         garmin = Mock()
         garmin.search_activities.return_value = []
         self.assertEqual(fetch_activities(garmin, DAY, DAY), [])
-        garmin.search_activities.side_effect = [[activity(i) for i in range(1, 51)], [activity(51)]]
+        first = [activity(i) for i in range(1, 51)]
+        garmin.search_activities.side_effect = [first, [activity(51)], first]
         self.assertEqual(len(fetch_activities(garmin, DAY, DAY)), 51)
-        self.assertEqual(garmin.search_activities.call_args.kwargs["start"], 50)
-        garmin.search_activities.side_effect = None
-        garmin.search_activities.return_value = [activity(1)] * 50
+        self.assertEqual([call.kwargs["start"] for call in garmin.search_activities.call_args_list[-3:]], [0, 50, 0])
+        garmin.search_activities.side_effect = lambda start, **_: [activity(start + i) for i in range(1, 51)]
         with self.assertRaisesRegex(ValueError, "Limite"):
             fetch_activities(garmin, DAY, DAY)
         self.assertEqual(garmin.search_activities.call_args.kwargs["start"], 4950)
+
+    def test_search_refuses_overlap_drift_and_anomalous_shape(self):
+        first = [activity(i) for i in range(1, 51)]
+        for pages, message in [
+            ([first, [activity("50")]], "duplicato"),
+            ([first, [], first[1:]], "cambiata"),
+            (["invalid"], "Formato"),
+        ]:
+            garmin = Mock()
+            garmin.search_activities.side_effect = pages
+            with self.assertRaisesRegex((ValueError, TypeError), message):
+                fetch_activities(garmin, DAY, DAY)
+
+    def test_retry_after_and_exit_contract(self):
+        rate_limit = HttpError(429)
+        rate_limit.response = Mock(headers={"Retry-After": "55"})
+        observed = []
+        operation = Mock(side_effect=[rate_limit, "synthetic"])
+        self.assertEqual(retry(operation, sleep=observed.append), "synthetic")
+        self.assertEqual(observed, [55])
+        rate_limit.response.headers = {"Retry-After": "121"}
+        with self.assertRaises(HttpError):
+            retry(Mock(side_effect=rate_limit), sleep=observed.append)
+        self.assertEqual(observed, [55])
+        with patch("builtins.print") as output, patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
+            for statuses, code in [
+                (["no_measurement"], 0), (["success", "failed"], 2), (["failed"], 1), (["conflict"], 2),
+            ]:
+                job = ImportJob()
+                for status in statuses:
+                    job.run("sleep", DAY, DAY, lambda: Outcome(status, error="http_503" if status == "failed" else None))
+                self.assertEqual(job.finish(), code)
+            self.assertEqual(run_job(Mock(side_effect=RuntimeError("synthetic-sensitive-text"))), 1)
+            unreachable = Mock()
+
+            def throttled(job):
+                job.run("hrv", DAY, DAY, lambda: Outcome("failed", error="http_429"))
+                unreachable()
+
+            self.assertEqual(run_job(throttled), 1)
+            unreachable.assert_not_called()
+        self.assertNotIn("synthetic-sensitive-text", str(output.call_args_list))
 
     def test_detail_validation_and_deduplication(self):
         garmin = Mock()
