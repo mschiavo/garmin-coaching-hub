@@ -1,13 +1,31 @@
-# Garmin Coaching Hub Community — starter package
+# Garmin Coaching Hub — Community V3.1.5 Beta
 
-Pacchetto preparatorio, NON ancora applicato al repository remoto.
+Dashboard personale per attività Garmin, recupero e Training Load, con sincronizzazione Python, database Supabase e frontend React/TypeScript.
 
-File inclusi:
-- `supabase/bootstrap.sql`: tabelle necessarie per una nuova installazione Supabase.
-- `docs/COMMUNITY_SETUP.md`: guida per un'istanza separata.
+Questa beta è destinata a un fork con un account Garmin e un progetto Supabase indipendenti. Non è una piattaforma multi-utente condivisa.
 
-Nel repository, aggiungere questi due file senza sovrascrivere `supabase/dashboard.sql` o i workflow esistenti.
+- [Installazione da zero](docs/COMMUNITY_SETUP.md)
+- [Checklist e report di collaudo](docs/BETA_TEST.md)
+- [Training Load](docs/V3_TRAINING_LOAD.md)
+- [Grafici interattivi V3.1.4](README-V3.1.4.md)
 
-**Non eseguire bootstrap.sql sul database personale già operativo**: è pensato per un nuovo progetto.
+## Ambiente di sviluppo
 
-La creazione del branch GitHub è stata rifiutata dal connettore (HTTP 403), quindi non esiste una PR remota e la V2 online non è stata modificata.
+Node.js 22 LTS (minimo 22), npm, Python 3.12, Git.
+
+```sh
+cd dashboard
+npm ci
+npm run build
+npm run dev
+```
+
+Per il frontend locale, copiare `.env.example` in `.env.local` nella cartella dashboard e impostare solo URL pubblico e chiave publishable/anon del proprio progetto. Mai inserire chiavi Garmin, password PostgreSQL o service_role nel frontend.
+
+Dalla radice: `python -m unittest discover -s tests -v`.
+
+## Stato della beta
+
+La V3.1.4 integrata ha superato la build locale e tre test Python; la V3.1.5 richiede una nuova verifica CI e un collaudo con un secondo account. Recharts 2 resta temporaneamente in uso; la migrazione a v3 è separata. Non applicare gli script di patch storici a questa installazione.
+
+La produzione upstream (`main`) resta separata. Leggere le avvertenze di sicurezza nella guida prima di distribuire il progetto.

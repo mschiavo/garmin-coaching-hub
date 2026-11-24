@@ -1,13 +1,5 @@
-# Community Edition V2.1 beta — patch package
+# Community V3.1.5 Beta
 
-This package **adds or replaces** the files shown here. It does not include or overwrite the existing dashboard or Garmin scripts directly.
+Il codice integrato è già presente nel branch `feature/community-v3-beta`. Non serve applicare le vecchie patch V2.1 o V3.1.4.
 
-After copying the package into the repository root, run:
-
-```bash
-python tools/apply_community_v21.py
-python -m unittest discover -s tests -v
-python -m py_compile sync_garmin.py import_garmin_history.py
-```
-
-The patch script updates the complete existing `sync_garmin.py` and `import_garmin_history.py` **in place**, preserving their other logic. It is safe to run twice. Read `docs/BETA_TEST.md` for the full procedure.
+Seguire [la guida di installazione](docs/COMMUNITY_SETUP.md) e [il piano di collaudo](docs/BETA_TEST.md).

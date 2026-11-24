@@ -1,10 +1,5 @@
 name: Deploy Garmin Dashboard to GitHub Pages
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'dashboard/**'
-      - '.github/workflows/dashboard-pages.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,23 +10,32 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    # Never deploy this beta to the upstream repository's production Pages.
+    if: ${{ github.event.repository.fork && github.ref == 'refs/heads/feature/community-v3-beta' }}
     runs-on: ubuntu-latest
     environment: github-pages
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
       - name: Install dependencies
         working-directory: dashboard
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build
         working-directory: dashboard
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           GITHUB_PAGES_BASE: /${{ github.event.repository.name }}/
-        run: npm run build
+        run: |
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
+          npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
