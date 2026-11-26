@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import psycopg
 from tools.local_supabase_e2e import (
-    LocalTargetError, _conn, read_cli_env, validate_api_url, validate_local_database,
+    LocalTargetError, _conn, dashboard_failure_summary, read_cli_env, validate_api_url,
+    validate_local_database,
 )
 
 
@@ -25,6 +26,31 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Synthetic end-to-end probes", result.stdout)
+
+    def test_dashboard_failure_summary_reports_only_allowlisted_diagnostics(self):
+        output = """1) [chromium] › tests/supabase.integration.spec.ts:37:5 › live local Supabase login, analytics, account switch and logout
+Error: expect(locator).toBeVisible() failed
+Timeout 5000ms exceeded
+password=synthetic-secret bearer eyJhbGciOiJIUzI1NiJ9.synthetic-signature
+"""
+        summary = dashboard_failure_summary(output, 1)
+        self.assertEqual(
+            summary,
+            "category=timeout test=live_local_supabase_dashboard source_line=37 "
+            "matcher=toBeVisible exit_code=1",
+        )
+        self.assertNotIn("synthetic-secret", summary)
+        self.assertNotIn("eyJhbGci", summary)
+
+        assertion = dashboard_failure_summary(
+            "tests/supabase.integration.spec.ts:42:7 Error: expect(page).toHaveCount() failed\n"
+            "expected 1, received 0", 1,
+        )
+        self.assertEqual(
+            assertion,
+            "category=assertion_failure test=unidentified source_line=42 "
+            "matcher=toHaveCount exit_code=1",
+        )
 
     def test_accepts_only_exact_loopback_fixture_target(self):
         values = validate_local_database(self.DSN, self.SYSTEM_ID, "postgres")

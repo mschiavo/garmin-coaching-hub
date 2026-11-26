@@ -23,10 +23,45 @@ LOCAL_HOST = "127.0.0.1"
 LOCAL_PORT = "54322"
 API_BASE = "http://127.0.0.1:54321"
 SYSTEM_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 class LocalTargetError(ValueError):
     """Safe validation error: never contains connection inputs."""
+
+
+def dashboard_failure_summary(output: str, returncode: int) -> str:
+    """Return allowlisted Playwright diagnostics without echoing captured output."""
+    if returncode == 0:
+        return "category=success"
+    safe_output = ANSI_ESCAPE.sub("", output)
+    if re.search(r"Timeout(?:Error)?|timed out|\d+ms exceeded", safe_output, re.IGNORECASE):
+        category = "timeout"
+    elif re.search(r"browserType\.launch|Executable doesn't exist", safe_output, re.IGNORECASE):
+        category = "browser_setup"
+    elif re.search(r"ERR_CONNECTION|page\.goto", safe_output, re.IGNORECASE):
+        category = "preview_or_api_connection"
+    elif re.search(r"expect\([^\n]*failed", safe_output, re.IGNORECASE):
+        category = "assertion_failure"
+    else:
+        category = "playwright_failure_unclassified"
+
+    fields = [f"category={category}"]
+    if "live local Supabase login, analytics, account switch and logout" in safe_output:
+        fields.append("test=live_local_supabase_dashboard")
+    else:
+        fields.append("test=unidentified")
+    source = re.search(r"tests[/\\]supabase\.integration\.spec\.ts:(\d+):\d+", safe_output)
+    if source:
+        fields.append(f"source_line={source.group(1)}")
+    matcher = re.search(
+        r"\.(toBeVisible|toContainText|toHaveCount|toBeTruthy|toBeGreaterThan)\(",
+        safe_output,
+    )
+    if matcher:
+        fields.append(f"matcher={matcher.group(1)}")
+    fields.append(f"exit_code={returncode}")
+    return " ".join(fields)
 
 
 def validate_local_database(dsn: str, expected_system_id: str, database: str) -> dict[str, str]:
@@ -258,8 +293,10 @@ def prepare(env: dict[str, str]) -> None:
     except Exception:
         raise LocalTargetError("Test dashboard live non avviabile") from None
     if result.returncode:
-        # The captured Playwright output can include request context; intentionally discard it.
-        raise LocalTargetError("Test dashboard live non superato (dettagli potenzialmente sensibili omessi)")
+        # Emit only allowlisted categories and static test metadata, never raw output.
+        summary = dashboard_failure_summary(result.stdout + "\n" + result.stderr,
+                                            result.returncode)
+        raise LocalTargetError(f"Test dashboard live non superato ({summary})")
     print("Dashboard live: login, cambio account, analytics e logout superati.")
 
 
