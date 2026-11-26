@@ -4,6 +4,23 @@ Il percorso locale verifica SQL, dashboard e writer simulato. Il percorso Supaba
 
 Per il percorso automatizzato PowerShell e la checklist unica delle operazioni manuali, vedere il [report operativo](V3_4_1_OPERATIONS_REPORT.md).
 
+## A.1 Collaudo end-to-end locale su runner GitHub
+
+È disponibile il workflow manuale [V3.4.1 Ephemeral Supabase E2E](../.github/workflows/v341-local-supabase-e2e.yml), esclusivamente `workflow_dispatch`. Avvia su `ubuntu-24.04` una stack Supabase locale effimera con CLI `3.4.0` e immagini Postgres, GoTrue, PostgREST e Kong fissate nella configurazione del workflow. Non effettua `supabase link`, non usa contesti `secrets.*`, non pubblica artifact e non chiama progetti cloud. Le action sono bloccate a SHA completi.
+
+Per avviarlo manualmente: aprire GitHub → Actions → **V3.4.1 Ephemeral Supabase E2E** → **Run workflow**, selezionare `feature/v341-staging-reliability` e avviare. In alternativa, da GitHub CLI, sul branch desiderato:
+
+```powershell
+gh workflow run v341-local-supabase-e2e.yml --ref feature/v341-staging-reliability
+gh run watch
+```
+
+Il job rifiuta ogni DSN che non sia esattamente loopback `127.0.0.1:54322`, database `gch_v341_fixture`, ruolo `postgres` e system identifier letto dal container PostgreSQL appena creato. Anche l’URL HTTP è fissato a `127.0.0.1:54321`. Gli indirizzi privati/container, gli host Supabase cloud, gli altri database/porte e le identità cluster diverse vengono rifiutati; `staging_connection()` resta invariata. La fixture richiede un database appena creato e vuoto. La password e le chiavi sono generate dalla stack effimera e non sono stampate; la service-role key non viene importata dal probe o dal browser. Il cleanup condizionale ferma la stack e rimuove file temporanei senza salvare trace, screenshot, video o artifact.
+
+La prova installa `bootstrap.sql`, `dashboard.sql`, `0034` e `0035`, poi fixture large sintetica. I probe HTTP eseguono signup/login/refresh/logout, accesso anonimo e account escluso, accesso allowlist, REST diretto ai due schemi privati, RPC legacy/V2, pagine, conteggi, ID bigint, errore su revisione obsoleta, mutazione esclusivamente sintetica che incrementa la revisione e richiesta non valida. Playwright apre il frontend con Supabase locale reale e senza route interception; verifica login, logout, cambio account, rifiuto dati per utente non allowlist e sezioni analytics.
+
+Questa stack non è eseguita localmente in questo PC se Docker/CLI mancano; il workflow appena aggiunto resta non eseguito in questa consegna, su richiesta esplicita di non avviare esecuzioni remote. Il workflow misura in modo effettivo la compatibilità delle versioni di stack fissate prima di dichiarare il gate superato.
+
 ## A. PostgreSQL locale isolato
 
 Usare Python 3.12, Node 22 e PostgreSQL 17 come in CI. PostgreSQL 14 è il minimo richiesto dalla migrazione. Da PowerShell avviare un’istanza di test sulla porta 55441 in una directory nuova. Usare un cluster sintetico vuoto se i percorsi o i nomi esistono già.

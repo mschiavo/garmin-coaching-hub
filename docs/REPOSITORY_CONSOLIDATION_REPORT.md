@@ -140,3 +140,11 @@ Questo percorso eserciterebbe versioni self-hosted di Auth/PostgREST, ma non la 
 - Nessun Docker sul PC, installazione di servizi di sistema, NAS, accesso Supabase cloud o Garmin reale.
 - Rimangono gate prima della promozione: collaudo Auth/PostgREST (almeno stack locale effimera; managed staging se richiesto per la release), verifica backup/restore locale quando PostgreSQL sarà disponibile e approvazione separata di PR/merge/deploy. La prova Garmin con dati autorizzati resta separata se richiesta.
 - La promozione V3.4.1 deve mantenere l'ordine di migrazioni 0034/0035 e la checklist V2/V3 descritta sopra; la produzione resta invariata fino a istruzione separata.
+
+## Addendum 26 novembre 2026 — harness E2E Supabase locale
+
+È stato predisposto sul branch un workflow GitHub Actions manuale per testare Auth, PostgREST e dashboard reali su una stack locale effimera del runner. Lo SHA remoto non include ancora questo addendum e le modifiche correlate; il commit è locale e non pubblicato. Il workflow non usa segreti GitHub, cloud Supabase, Garmin, NAS o il database di produzione. I controlli della destinazione staging cloud restano invariati.
+
+Il runner applica `bootstrap.sql`, `dashboard.sql`, migrazioni 0034/0035 e fixture sintetica, quindi verifica Auth, ACL, RPC legacy/V2, paginazione, bigint e revisione via HTTP. Un test Playwright usa le API locali senza intercettare le risposte. Sono inclusi controlli statici di regressione contro trigger automatici, permessi oltre `contents: read`, riferimenti a segreti/cloud e target PostgreSQL non locali. Si veda [report E2E](V3_4_1_E2E_REPORT.md). Non dichiarare il gate superato prima che il workflow venga avviato manualmente e completato verde su tutti gli step.
+
+Le verifiche locali della preparazione hanno superato 25 test Python, 17 test SQL in un cluster PostgreSQL 17.9 nuovo creato da una distribuzione portatile già disponibile nella cache host, 36 test dashboard, build e audit (zero vulnerabilità). Il cluster è stato arrestato e i suoi dati sintetici restano conservati in `.cache`; non si è installato Docker né avviata la stack Supabase. Lo SHA pubblicato `44dde7d` non contiene l’harness aggiunto in questo commit locale.
