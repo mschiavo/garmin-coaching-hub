@@ -128,12 +128,14 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("phase=network category=port_binding_invalid", workflow)
         self.assertNotIn("cat \"$log_file\"", workflow)
         self.assertNotIn("tee", workflow)
+        self.assertIn("ghcr.io/supabase/postgrest:v16.6) rest_ok=true", workflow)
+        self.assertNotIn("postgrest/postgrest:v16.6) rest_ok=true", workflow)
         self.assertIn("HostIp == \"127.0.0.1\"", workflow)
         self.assertIn("GCH_E2E_POSTGRES_CONTAINER_ID", workflow)
         self.assertNotIn("17.6.1.136", workflow)
         for image_tag in (
             "supabase/postgres:17.12.0.002", "supabase/gotrue:v2.198.0",
-            "postgrest/postgrest:v16.6", "kong:2.8.1",
+            "ghcr.io/supabase/postgrest:v16.6", "kong:2.8.1",
         ):
             self.assertIn(image_tag, workflow)
         harness = Path("tools/local_supabase_e2e.py").read_text(encoding="utf-8")

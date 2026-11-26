@@ -113,3 +113,36 @@ Controlli eseguiti localmente sul worktree Windows:
 Un tentativo iniziale di invocare la suite SQL direttamente, fuori dal runner che predispone il DSN e il cluster sintetico, è terminato senza eseguire test (`V34_TEST_DSN` assente); non è conteggiato come test fallito del prodotto. L'esecuzione successiva con il runner isolato è quella riportata sopra.
 
 La run GitHub non è stata rilanciata; non è stato effettuato push, merge, deploy né accesso a servizi esterni. Docker non è disponibile localmente, quindi startup Supabase e nuove asserzioni runtime non sono state esercitate. Il gate E2E resta aperto fino a una run verde sul commit che contiene la diagnostica.
+
+## Diagnosi del terzo fallimento E2E — 26 novembre 2026
+
+Run: [45812444163](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45812444163), eseguita sul commit `1e5d40b43dc602ca40655f79d9c6367974cacb25`. Il log conferma config valida, rete dedicata creata, startup con exit code zero, e inventario di quattro container tutti running; il solo step fallito è il matching del tag PostgREST.
+
+### Causa dimostrata
+
+La versione immagine non è cambiata: la CLI v3.4.0 fissa nel [Dockerfile ufficiale](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/shared/services/Dockerfile) l'upstream `postgrest/postgrest:v16.6`. Ma l'action [supabase/setup-cli fissata al commit usato dal workflow](https://github.com/supabase/setup-cli/blob/689adcfb80d947100a1eab127289b97d1fb07b13/src/main.ts) esporta `SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` per questa versione CLI. Il [resolver del registry nella CLI](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/command-internal/docker-registry.ts) riscrive quindi il nome upstream usando il registry e l'ultimo segmento del repository. Il riferimento atteso nel container è così `ghcr.io/supabase/postgrest:v16.6`.
+
+Il pattern precedente richiedeva un percorso con due segmenti `postgrest/postgrest` e non poteva corrispondere al percorso riscritto `supabase/postgrest`. Si tratta quindi di una discrepanza del nome repository, non di un tag PostgREST differente né di un difetto del matcher Bash. Il controllo degli altri tre servizi e la versione CLI restano invariati.
+
+### Correzione e protezioni
+
+Il controllo PostgREST ora accetta esclusivamente `ghcr.io/supabase/postgrest:v16.6`, riferimento effettivo ricavato dal resolver ufficiale e dalla configurazione dell'action fissata. Non accetta genericamente repository alternativi o versioni diverse. Un test statico di regressione richiede quel riferimento e rifiuta il vecchio pattern upstream. Restano invariati i vincoli dei quattro container running, rete della run, binding solo `127.0.0.1`, identità PostgreSQL, cleanup `always()` e assenza di accessi cloud.
+
+La run non è stata rilanciata e il tag effettivo non compare nei log disponibili: il riferimento è ricostruito deterministicamente dalle sorgenti corrispondenti alle versioni fissate, non da una stampa del runtime Docker. Il prossimo gate remoto dovrà confermare il completamento dello startup, rete/binding e test Auth/PostgREST. In questa consegna non sono stati eseguiti push, PR, merge, deploy o accessi a servizi esterni.
+
+### Verifiche locali della correzione
+
+| Controllo | Esito |
+| --- | --- |
+| Actionlint | Superato |
+| Python `unittest discover -s tests` | 27 superati, incluso il nuovo controllo statico del riferimento esatto |
+| PostgreSQL sintetico tramite task `Local` | 17 test SQL superati; backup/restore isolato completato, cluster arrestato |
+| Dashboard Training Load | 5 superati |
+| Dashboard Analytics/API | 15 superati |
+| Playwright desktop/mobile | 16 superati |
+| Build TypeScript/Vite | Superata |
+| `npm audit --audit-level=moderate` | 0 vulnerabilità |
+| `py_compile` e `git diff --check` | Superati |
+| Gitleaks | Eseguito sui file in staging Git prima del commit |
+
+Il test E2E con container Supabase non è disponibile su questa macchina senza Docker. La run remota successiva non è stata avviata.

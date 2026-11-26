@@ -204,7 +204,7 @@ jobs:
             case "$image_ref" in
               */supabase/postgres:17.12.0.002|supabase/postgres:17.12.0.002) postgres_ok=true; postgres_id="$container_id" ;;
               */supabase/gotrue:v2.198.0|supabase/gotrue:v2.198.0) auth_ok=true ;;
-              */postgrest/postgrest:v16.6|postgrest/postgrest:v16.6) rest_ok=true ;;
+              ghcr.io/supabase/postgrest:v16.6) rest_ok=true ;;
               */kong:2.8.1|kong:2.8.1) kong_ok=true ;;
             esac
           done
