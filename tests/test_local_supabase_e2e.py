@@ -1,4 +1,3 @@
-import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -91,6 +90,7 @@ class LocalSupabaseTargetTests(unittest.TestCase):
             "dashboard/**", "requirements.txt", "tests/sql/**",
             "tests/test_local_supabase_e2e.py",
             "tests/test_staging.py",
+            "tests/test_v341_docker_images.sh", "tools/v341_docker_images.sh",
         ):
             self.assertIn(f"      - {path}", trigger)
         self.assertNotIn("main", trigger)
@@ -129,14 +129,24 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("phase=network category=port_binding_invalid", workflow)
         self.assertNotIn("cat \"$log_file\"", workflow)
         self.assertNotIn("tee", workflow)
-        self.assertIn("docker_ref_re='", workflow)
+        self.assertIn("source tools/v341_docker_images.sh", workflow)
+        self.assertIn("run: bash tests/test_v341_docker_images.sh", workflow)
         self.assertIn("docker_image_ref=%s", workflow)
         self.assertIn("category=malformed_image_reference", workflow)
         self.assertIn("phase=image_components service=postgrest registry_ok=%s repository_ok=%s tag_ok=%s", workflow)
-        self.assertIn("[ \"$image_registry\" = 'public.ecr.aws' ]", workflow)
-        self.assertIn("[ \"$image_repository\" = 'supabase/postgrest' ]", workflow)
-        self.assertIn("[ \"$image_tag\" = 'v16.6' ]", workflow)
-        self.assertNotIn("ghcr.io/supabase/postgrest:v16.6", workflow)
+        image_parser = Path("tools/v341_docker_images.sh").read_text(encoding="utf-8")
+        self.assertIn("V341_DOCKER_REF_RE=", image_parser)
+        self.assertIn("V341_IMAGE_REPOSITORY=\"${V341_IMAGE_REPOSITORY%:*}\"", image_parser)
+        self.assertIn("V341_IMAGE_REGISTRY\" == public.ecr.aws", image_parser)
+        self.assertIn("V341_IMAGE_REPOSITORY\" == supabase/postgrest", image_parser)
+        self.assertIn("V341_IMAGE_TAG\" == v16.6", image_parser)
+        self.assertIn("v341_count_postgrest_candidates", workflow + image_parser)
+        self.assertNotIn("ghcr.io/supabase/postgrest:v16.6", workflow + image_parser)
+        network_create = workflow.index('network_id="$(docker network create')
+        network_export = workflow.index('echo "GCH_DOCKER_NETWORK_NAME=$network_name"')
+        network_inspect = workflow.index('network_check="$(docker network inspect')
+        self.assertLess(network_create, network_export)
+        self.assertLess(network_export, network_inspect)
         self.assertIn("HostIp == \"127.0.0.1\"", workflow)
         self.assertIn("GCH_E2E_POSTGRES_CONTAINER_ID", workflow)
         self.assertNotIn("17.6.1.136", workflow)
@@ -145,20 +155,6 @@ class LocalSupabaseTargetTests(unittest.TestCase):
             "kong:2.8.1",
         ):
             self.assertIn(image_tag, workflow)
-        image_pattern = re.search(r"docker_ref_re='([^']+)'", workflow).group(1)
-        for image_ref in (
-            "public.ecr.aws/supabase/postgrest:v16.6",
-            "docker.io/supabase/postgres:17.12.0.002",
-            "ghcr.io/supabase/auth:v2.198.0@sha256:" + "a" * 64,
-        ):
-            with self.subTest(image_ref=image_ref):
-                self.assertRegex(image_ref, image_pattern)
-        for image_ref in (
-            "https://user:password@host/image:tag", "image:tag;echo unsafe",
-            "ghcr.io/supabase/image:tag with-space", "ghcr.io/supabase/image:tag$(id)",
-        ):
-            with self.subTest(image_ref=image_ref):
-                self.assertNotRegex(image_ref, image_pattern)
         harness = Path("tools/local_supabase_e2e.py").read_text(encoding="utf-8")
         fixture = Path("tools/staging_fixture.py").read_text(encoding="utf-8")
         self.assertIn('DB_NAME = "postgres"', harness)

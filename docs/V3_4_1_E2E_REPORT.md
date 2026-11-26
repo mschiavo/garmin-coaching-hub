@@ -146,3 +146,37 @@ La run `45819381928` ha superato startup e inventario (4/4 container running) ma
 | Gitleaks | Eseguito sui file in staging Git prima del commit |
 
 Il test E2E con container Supabase non è disponibile su questa macchina senza Docker. La run remota successiva non è stata avviata.
+
+## Correzione parser immagini Docker — quinta run E2E
+
+Run [45836389449](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45836389449), commit remoto `5e723631ea8d1119eed2998c8f1f0b832f5cc003`. La diagnostica runtime ha registrato `public.ecr.aws/supabase/postgrest:v16.6` e componenti `registry_ok=true`, `repository_ok=false`, `tag_ok=true`; gli altri tre tag, startup e inventario 4/4 container erano superati.
+
+La causa era il parsing Bash inline: `${ref_without_digest#*/}` rimuoveva soltanto il primo segmento `public.ecr.aws/`, lasciando `supabase/postgrest:v16.6`; il confronto richiedeva `supabase/postgrest`. Ho spostato parsing e funzioni di confronto in [`v341_docker_images.sh`](../tools/v341_docker_images.sh), che valida prima il riferimento con allowlist, poi separa registry, repository senza tag, tag e digest. Il workflow usa queste stesse funzioni e confronta esattamente registry `public.ecr.aws`, repository `supabase/postgrest`, tag `v16.6`. CLI e immagini non sono state cambiate.
+
+Il test [`test_v341_docker_images.sh`](../tests/test_v341_docker_images.sh) importa ed esegue il parser Bash effettivamente usato dal workflow; copre il riferimento osservato, digest valido, tag/repository/registry errati, conteggio zero e duplicato, digest malformato, userinfo, whitespace e input con metacaratteri. La workflow esegue questo test subito dopo il checkout, prima di avviare la stack.
+
+### Verifica preventiva del percorso successivo
+
+La revisione statica non ha trovato errori certi nella verifica rete e binding (`NetworkID` esatto, tutti gli HostIp pubblicati su loopback), nel passaggio dei container ID via `GITHUB_ENV`, nell'identificazione Postgres tramite tag già convalidato, nella selezione delle sole `API_URL`, `DB_URL` e `ANON_KEY` dall'output env locale, né nella sequenza Auth/PostgREST/Playwright. I segreti CLI restano in memoria e le credenziali sintetiche sono passate al processo browser senza logging.
+
+È stato invece corretto un difetto certo nel cleanup della rete: lo step salvava nome e ID Docker in `GITHUB_ENV` solo dopo il controllo d'identità; se quel controllo falliva, il cleanup non conosceva la rete appena creata. Ora le coordinate della rete vengono persistite immediatamente dopo `docker network create`, prima dell'ispezione. La verifica fail-closed resta identica e il cleanup rimuove la rete soltanto se driver, binding loopback ed etichetta corrispondono.
+
+### Test della correzione
+
+Il test Bash reale è stato eseguito localmente senza Docker tramite Bash for Windows: **17 asserzioni superate**, incluso il riferimento effettivamente osservato, e `bash -n` sui due script. Esiti completi della consegna:
+
+| Verifica | Esito |
+| --- | --- |
+| actionlint | Superato |
+| Python unit/regression | 27 superati |
+| Bash parser (helper realmente usato dal workflow) | 17 superati |
+| SQL su PostgreSQL sintetico con backup/restore isolato | 17 superati |
+| Dashboard Training Load | 5 superati |
+| Dashboard Analytics/API | 15 superati |
+| Playwright desktop/mobile | 16 superati |
+| Build dashboard | Superata |
+| npm audit | 0 vulnerabilità |
+| py_compile e diff whitespace | Superati |
+| Gitleaks staged | Nessun segreto rilevato |
+
+Il test Bash è inoltre un gate esplicito della workflow; l'E2E remoto non è stato rilanciato. L'ulteriore correzione di cleanup rete anticipa soltanto la persistenza dell'identità rete in `GITHUB_ENV`; test runtime di Docker non disponibili su questo host restano da confermare nel prossimo gate remoto.
