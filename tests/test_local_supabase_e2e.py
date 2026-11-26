@@ -75,11 +75,29 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertEqual(set(values), {"API_URL", "DB_URL", "ANON_KEY"})
         self.assertNotIn("SERVICE_ROLE_KEY", values)
 
-    def test_workflow_is_manual_pinned_and_cloud_secret_free(self):
+    def test_workflow_has_branch_scoped_temporary_push_and_dispatch(self):
         workflow = Path(".github/workflows/v341-local-supabase-e2e.yml").read_text(encoding="utf-8")
-        self.assertRegex(workflow, r"(?m)^on:\s*\n\s+workflow_dispatch:\s*$")
-        self.assertNotRegex(workflow, r"(?m)^\s+(push|pull_request|schedule):")
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertRegex(trigger, r"(?m)^on:\n  push:\n    branches:\n      - feature/v341-staging-reliability\n    paths:\n")
+        self.assertIn("  workflow_dispatch:\n", trigger)
+        self.assertNotRegex(trigger, r"(?m)^\s+(pull_request|schedule):")
+        self.assertIn("      - .github/workflows/v341-local-supabase-e2e.yml", trigger)
+        for path in (
+            "tools/local_supabase_e2e.py", "tools/staging_fixture.py",
+            "supabase/bootstrap.sql", "supabase/dashboard.sql",
+            "supabase/migrations/0034_data_intelligence.sql",
+            "supabase/migrations/0035_staging_reliability.sql",
+            "dashboard/**", "requirements.txt", "tests/sql/**",
+            "tests/test_local_supabase_e2e.py",
+            "tests/test_staging.py",
+        ):
+            self.assertIn(f"      - {path}", trigger)
+        self.assertNotIn("main", trigger)
+
+    def test_workflow_is_pinned_local_only_and_secret_free(self):
+        workflow = Path(".github/workflows/v341-local-supabase-e2e.yml").read_text(encoding="utf-8")
         self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("persist-credentials: false", workflow)
         self.assertIn("version: 3.4.0", workflow)
         self.assertIn("supabase/postgres:17.6.1.136", workflow)
         self.assertIn("supabase/gotrue:v2.198.0", workflow)
@@ -90,6 +108,10 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertNotIn("supabase link", workflow)
         self.assertNotIn("supabase db push", workflow)
         self.assertNotIn("supabase.co", workflow)
+        self.assertNotRegex(workflow, r"(?i)garmin|nas|production|prod_")
+        for line in workflow.splitlines():
+            if line.strip().startswith("uses:"):
+                self.assertRegex(line.strip(), r"^uses: [^@]+@[0-9a-f]{40}(?:\s+#.*)?$")
         self.assertIn("tools/local_supabase_e2e.py", workflow)
         self.assertIn("pg_control_system()", workflow)
         self.assertIn("if: always()", workflow)

@@ -1,6 +1,22 @@
 name: V3.4.1 Ephemeral Supabase E2E
 
 on:
+  push:
+    branches:
+      - feature/v341-staging-reliability
+    paths:
+      - .github/workflows/v341-local-supabase-e2e.yml
+      - tools/local_supabase_e2e.py
+      - tools/staging_fixture.py
+      - supabase/bootstrap.sql
+      - supabase/dashboard.sql
+      - supabase/migrations/0034_data_intelligence.sql
+      - supabase/migrations/0035_staging_reliability.sql
+      - dashboard/**
+      - requirements.txt
+      - tests/sql/**
+      - tests/test_local_supabase_e2e.py
+      - tests/test_staging.py
   workflow_dispatch:
 
 permissions:

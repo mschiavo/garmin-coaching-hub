@@ -6,7 +6,7 @@
 
 ## Implementazione
 
-È stato aggiunto [`v341-local-supabase-e2e.yml`](../.github/workflows/v341-local-supabase-e2e.yml), avviabile soltanto da `workflow_dispatch`, su runner GitHub-hosted Linux `ubuntu-24.04` temporaneo. La workflow ha `contents: read`, checkout senza credenziali persistenti, action con SHA completi, Python 3.12.8, Node 22.23.5 e Supabase CLI 3.4.0. Avvia la stack tramite CLI senza `supabase link`, esclude i servizi non richiesti e pinna i container Postgres `17.6.1.136`, GoTrue `v2.198.0`, PostgREST `v14.18` e Kong `3.9.5`; le versioni sono elencate dalle note CLI e dal manifesto immagini Supabase ufficiale ([CLI 3.4.0](https://github.com/supabase/cli/releases/tag/v3.4.0), [Docker versions](https://github.com/supabase/supabase/blob/master/docker/versions.md)). Il runner non ha ambienti o secrets associati alla workflow; i riferimenti `secrets.*` sono assenti.
+È stato aggiunto [`v341-local-supabase-e2e.yml`](../.github/workflows/v341-local-supabase-e2e.yml), eseguibile prima del merge da un trigger `push` temporaneo limitato al branch `feature/v341-staging-reliability` e ai file del workflow, harness, SQL, dipendenze, dashboard e test interessati. `workflow_dispatch` resta disponibile per usi successivi, ma GitHub lo abilita solo quando la definizione è presente sul branch predefinito: non è il metodo di avvio per questo pre-merge gate. Il runner GitHub-hosted Linux `ubuntu-24.04` è effimero. La workflow ha `contents: read`, checkout senza credenziali persistenti, action con SHA completi, Python 3.12.8, Node 22.23.5 e Supabase CLI 3.4.0. Avvia la stack tramite CLI senza `supabase link`, esclude i servizi non richiesti e pinna i container Postgres `17.6.1.136`, GoTrue `v2.198.0`, PostgREST `v14.18` e Kong `3.9.5`; le versioni sono elencate dalle note CLI e dal manifesto immagini Supabase ufficiale ([CLI 3.4.0](https://github.com/supabase/cli/releases/tag/v3.4.0), [Docker versions](https://github.com/supabase/supabase/blob/master/docker/versions.md)). Il runner non ha ambienti o secrets associati alla workflow; i riferimenti `secrets.*` sono assenti.
 
 [`local_supabase_e2e.py`](../tools/local_supabase_e2e.py) accetta solo API `http://127.0.0.1:54321` e PostgreSQL `127.0.0.1:54322`, ruolo e database `postgres`, cioè il database predefinito al quale GoTrue e PostgREST della stack Supabase locale sono collegati. Il progetto/cluster è appena avviato e le tabelle applicative sono installate lì; la fixture verifica che l’archivio `coaching` sia vuoto prima di scrivere. Il probe confronta il system identifier ottenuto direttamente dal container con quello del DSN loopback e lo ricontrolla prima dei passaggi DB. Rifiuta loopback alternativi, hostname, qualsiasi IP privato/esterno, porta/database/ruolo diversi e identity non corrispondente. La fixture accetta questo nome DB solo con il flag locale esplicito e system identifier; la modalità normale e `staging_connection()` restano invariate.
 
@@ -30,8 +30,8 @@ Le verifiche locali effettivamente eseguite sono:
 
 | Controllo | Esito |
 | --- | --- |
-| Python `unittest discover -s tests` | 26 superati, inclusi i test dei target/workflow |
-| Test SQL `unittest discover -s tests/sql` | 17 superati su cluster PostgreSQL 17.9 portatile, sintetico e nuovo, porta loopback 55441; cluster arrestato regolarmente e conservato in `.cache` con i soli dati sintetici |
+| Python `unittest discover -s tests` | 27 superati, inclusi i test dei target/workflow e dei filtri di attivazione |
+| Test SQL `unittest discover -s tests/sql` | 17 superati su cluster PostgreSQL 17.9 portatile, sintetico e nuovo, porta loopback 55448; restore isolato verificato, cluster arrestato regolarmente e conservato in `.cache` con i soli dati sintetici |
 | Dashboard Training Load | 5 superati |
 | Dashboard Analytics/API | 15 superati |
 | Playwright desktop/mobile preesistente | 16 superati |
@@ -39,16 +39,20 @@ Le verifiche locali effettivamente eseguite sono:
 | `npm audit --audit-level=moderate` | 0 vulnerabilità |
 | Python `py_compile` | Superata |
 | Playwright discovery del nuovo test (`--list`) | 1 test rilevato; nessun servizio avviato |
+| `actionlint` 1.7.12 | YAML e semantica della workflow superati |
 | Gitleaks 8.30.1 e `git diff --cached --check` | 0 segreti rilevati; whitespace superato |
 
-La build di integrazione con endpoint locale e l’esecuzione del browser live non sono state simulate con risposte mock e non sono conteggiate come superate. Il test E2E verrà effettivamente esercitato soltanto dal workflow manuale.
+La build di integrazione con endpoint locale e l’esecuzione del browser live non sono state simulate con risposte mock e non sono conteggiate come superate. Il test E2E verrà effettivamente esercitato dal push sul branch filtrato; nessuna esecuzione remota è stata avviata durante questo intervento.
 
-La precedente CI sul commit pubblicato `44dde7d3a0a5830202d2b23bd0dfc154cb54a864` resta una verifica storica dei tre job esistenti, non include questo workflow. Il workflow E2E deve essere eseguito manualmente sul branch dalla pagina GitHub **Actions → V3.4.1 Ephemeral Supabase E2E → Run workflow**, selezionando `feature/v341-staging-reliability`, oppure con:
+La precedente CI sul commit pubblicato `44dde7d3a0a5830202d2b23bd0dfc154cb54a864` resta una verifica storica dei tre job esistenti, non include questo workflow. Per l'avvio pre-merge reale, dopo aver pubblicato un commit autorizzato che includa questa definizione, un push sul branch e su almeno uno dei percorsi filtrati avvia automaticamente il gate:
 
 ```powershell
-gh workflow run v341-local-supabase-e2e.yml --ref feature/v341-staging-reliability
-gh run watch
+git push origin feature/v341-staging-reliability
+gh run list --workflow v341-local-supabase-e2e.yml --branch feature/v341-staging-reliability --limit 5
+gh run watch <run-id>
 ```
+
+Non usare `gh workflow run` come procedura pre-merge: il trigger manuale non è selezionabile finché il workflow non è presente su `main`. Dopo il gate E2E verde, disattivare il trigger temporaneo rimuovendo solo il blocco `push:` (branch e `paths`) in un successivo commit del branch; mantenere `workflow_dispatch` se serve per esecuzioni future dopo che il workflow sarà disponibile sul branch predefinito. La rimozione del trigger non esegue né richiede modifiche a `main`.
 
 **Criterio di accettazione:** l’esecuzione deve terminare verde su validazione config, startup stack, installazione/fixture, probe Auth/REST, build frontend, Playwright e cleanup. Qualunque errore è gate aperto; non si devono allegare log o artefatti di esecuzione se possono esporre chiavi. La workflow non esegue da sé push, PR, merge o deploy, e rifiuta il branch `main`.
 
