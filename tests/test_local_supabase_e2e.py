@@ -10,10 +10,10 @@ from tools.local_supabase_e2e import (
 
 class LocalSupabaseTargetTests(unittest.TestCase):
     SYSTEM_ID = "7421098365012345678"
-    DSN = "host=127.0.0.1 port=54322 dbname=gch_v341_fixture user=postgres password=synthetic"
+    DSN = "host=127.0.0.1 port=54322 dbname=postgres user=postgres password=synthetic"
 
     def test_accepts_only_exact_loopback_fixture_target(self):
-        values = validate_local_database(self.DSN, self.SYSTEM_ID, "gch_v341_fixture")
+        values = validate_local_database(self.DSN, self.SYSTEM_ID, "postgres")
         self.assertEqual(values["host"], "127.0.0.1")
         self.assertEqual(validate_api_url("http://127.0.0.1:54321"), "http://127.0.0.1:54321")
 
@@ -21,21 +21,21 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         for host in ("10.1.2.3", "192.168.1.20", "172.20.0.2", "db.example.supabase.co", "localhost"):
             with self.subTest(host=host), self.assertRaises(LocalTargetError):
                 validate_local_database(self.DSN.replace("127.0.0.1", host), self.SYSTEM_ID,
-                                        "gch_v341_fixture")
+                                        "postgres")
 
     def test_rejects_wrong_database_port_and_missing_or_invalid_cluster_identity(self):
         cases = (
             (self.DSN.replace("54322", "5432"), self.SYSTEM_ID, "gch_v341_fixture"),
-            (self.DSN.replace("gch_v341_fixture", "postgres"), self.SYSTEM_ID, "gch_v341_fixture"),
-            (self.DSN, "", "gch_v341_fixture"),
-            (self.DSN, "0", "gch_v341_fixture"),
-            (self.DSN, "18446744073709551616", "gch_v341_fixture"),
+            (self.DSN.replace("postgres", "gch_v341_fixture"), self.SYSTEM_ID, "gch_v341_fixture"),
+            (self.DSN, "", "postgres"),
+            (self.DSN, "0", "postgres"),
+            (self.DSN, "18446744073709551616", "postgres"),
         )
         for dsn, system_id, database in cases:
             with self.subTest(dsn=dsn, system_id=system_id), self.assertRaises(LocalTargetError):
                 validate_local_database(dsn, system_id, database)
         with self.assertRaises(LocalTargetError):
-            validate_local_database(self.DSN.replace("gch_v341_fixture", "other_db"),
+            validate_local_database(self.DSN.replace("postgres", "other_db"),
                                     self.SYSTEM_ID, "other_db")
 
     def test_rejects_actual_cluster_identity_mismatch(self):
@@ -54,7 +54,7 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         connection = FakeConnection()
         with patch.object(psycopg, "connect", return_value=connection):
             with self.assertRaisesRegex(LocalTargetError, "Identificatore"):
-                _conn(self.DSN, self.SYSTEM_ID, "gch_v341_fixture")
+                _conn(self.DSN, self.SYSTEM_ID, "postgres")
         self.assertTrue(connection.closed)
 
     def test_rejects_api_cloud_or_non_loopback_targets(self):
@@ -94,6 +94,11 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("pg_control_system()", workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn('!= "$RUNNER_TEMP/gch-v341-supabase"', workflow)
+        harness = Path("tools/local_supabase_e2e.py").read_text(encoding="utf-8")
+        fixture = Path("tools/staging_fixture.py").read_text(encoding="utf-8")
+        self.assertIn('DB_NAME = "postgres"', harness)
+        self.assertIn("local_supabase=True", harness)
+        self.assertIn("local_supabase_target", fixture)
         browser_config = Path("dashboard/playwright.integration.config.ts").read_text(encoding="utf-8")
         browser_test = Path("dashboard/tests/supabase.integration.spec.ts").read_text(encoding="utf-8")
         self.assertIn("npm run preview", browser_config)

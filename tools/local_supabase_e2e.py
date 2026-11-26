@@ -13,13 +13,12 @@ import sys
 from urllib.parse import urlsplit
 
 import psycopg
-from psycopg import sql
 import requests
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from tools.staging_fixture import fixture_sql
 
-DB_NAME = "gch_v341_fixture"
+DB_NAME = "postgres"
 LOCAL_HOST = "127.0.0.1"
 LOCAL_PORT = "54322"
 API_BASE = "http://127.0.0.1:54321"
@@ -36,7 +35,7 @@ def validate_local_database(dsn: str, expected_system_id: str, database: str) ->
     except Exception:
         raise LocalTargetError("DSN locale non valido") from None
     if (set(options) - {"host", "port", "dbname", "user", "password"}
-            or database not in ("postgres", DB_NAME)
+            or database != DB_NAME
             or options.get("host") != LOCAL_HOST
             or options.get("port") != LOCAL_PORT
             or options.get("dbname") != database
@@ -98,34 +97,15 @@ def prepare(env: dict[str, str]) -> None:
         raise LocalTargetError("Connessione CLI non loopback rifiutata")
     admin_dsn = make_conninfo(host=LOCAL_HOST, port=LOCAL_PORT, dbname="postgres",
                               user="postgres", password=parsed.password)
-    options = validate_local_database(admin_dsn, system_id, "postgres")
-    conn = _conn(admin_dsn, system_id, "postgres")
-    try:
-        exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,)).fetchone()
-        if exists:
-            raise LocalTargetError("Database fixture già presente; il cluster deve essere effimero e vuoto")
-        conn.close()
-        create = psycopg.connect(make_conninfo(**options, connect_timeout=10), autocommit=True)
-        try:
-            if create.execute("SELECT system_identifier::text FROM pg_catalog.pg_control_system()").fetchone()[0] != system_id:
-                raise LocalTargetError("Identificatore del cluster cambiato prima della creazione")
-            create.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
-        finally:
-            create.close()
-    finally:
-        if not conn.closed:
-            conn.close()
-
-    fixture_dsn = make_conninfo(host=LOCAL_HOST, port=LOCAL_PORT, dbname=DB_NAME,
-                                user="postgres", password=parsed.password)
-    target = _conn(fixture_dsn, system_id, DB_NAME)
+    target = _conn(admin_dsn, system_id, DB_NAME)
     try:
         files = [Path("supabase/bootstrap.sql"),
                  Path("supabase/dashboard.sql"), Path("supabase/migrations/0034_data_intelligence.sql"),
                  Path("supabase/migrations/0035_staging_reliability.sql")]
         for file in files:
             target.execute(file.read_text(encoding="utf-8"), prepare=False)
-        target.execute(fixture_sql(date.today(), True, database=DB_NAME, system_id=system_id), prepare=False)
+        target.execute(fixture_sql(date.today(), True, database=DB_NAME, system_id=system_id,
+                                   local_supabase=True), prepare=False)
     finally:
         target.close()
 

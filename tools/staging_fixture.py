@@ -61,14 +61,18 @@ def validate_system_id(value: str) -> str:
 
 
 def fixture_sql(reference: date, large: bool, ref: str | None = None, legacy: bool = False, *,
-                database: str = LOCAL_DB, system_id: str | None = None):
+                database: str = LOCAL_DB, system_id: str | None = None,
+                local_supabase: bool = False):
     if ref is not None and not REF.fullmatch(ref):
         raise ValueError("Project ref non valido")
     if not date(2001, 1, 1) <= reference <= date(9998, 12, 31):
         raise ValueError("Data di riferimento fuori intervallo")
     start = reference - timedelta(days=2500 if large else 7)
     count = 2501 if large else 8
-    if database not in (LOCAL_DB, UPGRADE_DB) or (ref is not None and system_id is not None):
+    local_supabase_target = local_supabase and database == "postgres" and system_id is not None
+    if ((database not in (LOCAL_DB, UPGRADE_DB) and not local_supabase_target)
+            or (ref is not None and system_id is not None)
+            or (local_supabase and (ref is not None or system_id is None or database != "postgres"))):
         raise ValueError("Destinazione sintetica non valida")
     if ref is not None:
         target = (f"(SELECT array_agg(project_ref::text) FROM dashboard_private.staging_identity) "

@@ -73,6 +73,18 @@ class StagingTests(TestCase):
         with self.assertRaises(ValueError):
             fixture_sql(day, False, ref=REF, system_id="42")
 
+    def test_local_supabase_fixture_requires_explicit_flag_and_cluster_identity(self):
+        day = date(2026, 11, 26)
+        with self.assertRaises(ValueError):
+            fixture_sql(day, False, database="postgres", system_id="42")
+        with self.assertRaises(ValueError):
+            fixture_sql(day, False, database="postgres", local_supabase=True)
+        script = fixture_sql(day, False, database="postgres", system_id="42", local_supabase=True)
+        self.assertIn("current_database() <> 'postgres'", script)
+        self.assertIn("system_identifier::text", script)
+        with self.assertRaises(ValueError):
+            fixture_sql(day, False, database=LOCAL_DB, system_id="42", local_supabase=True)
+
     def test_probe_rejects_secret_key_and_stops_on_marker_before_http(self):
         env = ENV | {
             "GCH_STAGING_ALLOWED_EMAIL": "allowed@example.invalid",
