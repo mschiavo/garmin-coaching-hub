@@ -136,34 +136,104 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
           cd "$GCH_SUPABASE_DIR"
-          if ! SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit > /dev/null 2>&1; then
-            echo "Local Supabase stack startup failed; service output is intentionally withheld."
+          # v3.4.0 defaults to upstream Dockerfile images. Pin that mode explicitly so the
+          # subsequent runtime tag assertions match the CLI's embedded image manifest.
+          log_file="$RUNNER_TEMP/gch-v341-supabase-start.log"
+          set +e
+          SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" SUPABASE_USE_SLIM_IMAGES=false \
+            supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit \
+            >"$log_file" 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            category="startup_other"
+            if grep -Eqi 'address already in use|port is already allocated' "$log_file"; then
+              category="startup_port_conflict"
+            elif grep -Eqi 'pull access denied|manifest unknown|failed to resolve reference|no matching manifest' "$log_file"; then
+              category="startup_image_unavailable"
+            elif grep -Eqi 'network .* not found|failed to create endpoint|network.*invalid' "$log_file"; then
+              category="startup_network_error"
+            elif grep -Eqi 'unhealthy|health check|healthcheck' "$log_file"; then
+              category="startup_health_error"
+            elif grep -Eqi 'error parsing.*config|invalid.*config|unknown key' "$log_file"; then
+              category="startup_config_error"
+            fi
+            rm -f -- "$log_file"
+            printf 'phase=startup category=%s exit_code=%s\n' "$category" "$exit_code"
+            exit "$exit_code"
+          fi
+          rm -f -- "$log_file"
+          printf 'phase=startup category=success exit_code=0\n'
+
+      - name: Inspect ephemeral service count and states
+        id: inspect-services
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t container_ids < <(docker ps -a --filter 'label=com.supabase.cli.project=gch-v341-e2e' --format '{{.ID}}')
+          count=${#container_ids[@]}
+          running=0
+          stopped=0
+          for container_id in "${container_ids[@]}"; do
+            state="$(docker inspect --format '{{.State.Status}}' "$container_id")"
+            if [ "$state" = running ]; then running=$((running + 1)); else stopped=$((stopped + 1)); fi
+          done
+          printf 'phase=container_inventory category=observed container_count=%s running_count=%s stopped_count=%s\n' "$count" "$running" "$stopped"
+          if [ "$count" -ne 4 ]; then
+            printf 'phase=container_inventory category=container_count_mismatch exit_code=1\n'
             exit 1
           fi
-          mapfile -t container_ids < <(docker ps --filter 'label=com.supabase.cli.project=gch-v341-e2e' --format '{{.ID}}')
-          test "${#container_ids[@]}" -eq 4
-          mapfile -t image_refs < <(docker inspect --format '{{.Config.Image}}' "${container_ids[@]}")
-          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)supabase/postgres:17\.12\.0\.002$'
-          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)supabase/gotrue:v2\.198\.0$'
-          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)postgrest/postgrest:v16\.6$'
-          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)kong:2\.8\.1$'
-          mapfile -t postgres_ids < <(
-            for container_id in "${container_ids[@]}"; do
-              image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
-              if [[ "$image_ref" =~ (^|/)supabase/postgres:17\.12\.0\.002$ ]]; then
-                printf '%s\n' "$container_id"
-              fi
-            done
-          )
-          test "${#postgres_ids[@]}" -eq 1
-          printf 'GCH_E2E_POSTGRES_CONTAINER_ID=%s\n' "${postgres_ids[0]}" >> "$GITHUB_ENV"
-          for container_id in "${container_ids[@]}"; do
-            docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{printf "%s " $network.NetworkID}}{{end}}' "$container_id" | grep -Fq "$GCH_SUPABASE_NETWORK_ID"
-            docker inspect --format '{{json .NetworkSettings.Ports}}' "$container_id" |
-              jq -e 'to_entries | all(.[]; .value == null or all(.value[]; .HostIp == "127.0.0.1"))' > /dev/null
+          if [ "$running" -ne 4 ]; then
+            printf 'phase=container_inventory category=container_not_running exit_code=1\n'
+            exit 1
+          fi
+          printf 'GCH_E2E_CONTAINER_IDS=%s\n' "${container_ids[*]}" >> "$GITHUB_ENV"
+          printf 'phase=container_inventory category=success exit_code=0\n'
+
+      - name: Verify pinned service image tags
+        id: verify-images
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_ok=false; auth_ok=false; rest_ok=false; kong_ok=false
+          postgres_id=""
+          for container_id in $GCH_E2E_CONTAINER_IDS; do
+            image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+            case "$image_ref" in
+              */supabase/postgres:17.12.0.002|supabase/postgres:17.12.0.002) postgres_ok=true; postgres_id="$container_id" ;;
+              */supabase/gotrue:v2.198.0|supabase/gotrue:v2.198.0) auth_ok=true ;;
+              */postgrest/postgrest:v16.6|postgrest/postgrest:v16.6) rest_ok=true ;;
+              */kong:2.8.1|kong:2.8.1) kong_ok=true ;;
+            esac
           done
-          printf 'GCH_SUPABASE_DIR=%s\n' "$GCH_SUPABASE_DIR" >> "$GITHUB_ENV"
+          printf 'phase=image_tags postgres_ok=%s auth_ok=%s rest_ok=%s kong_ok=%s\n' "$postgres_ok" "$auth_ok" "$rest_ok" "$kong_ok"
+          if [ "$postgres_ok" != true ] || [ "$auth_ok" != true ] || [ "$rest_ok" != true ] || [ "$kong_ok" != true ]; then
+            printf 'phase=image_tags category=image_tag_mismatch exit_code=1\n'
+            exit 1
+          fi
+          printf 'GCH_E2E_POSTGRES_CONTAINER_ID=%s\n' "$postgres_id" >> "$GITHUB_ENV"
+          printf 'phase=image_tags category=success exit_code=0\n'
+
+      - name: Verify isolated network and loopback-only ports
+        shell: bash
+        run: |
+          set -euo pipefail
+          network_ok=true
+          loopback_ok=true
+          published_port_count=0
+          for container_id in $GCH_E2E_CONTAINER_IDS; do
+            if ! docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{printf "%s\n" $network.NetworkID}}{{end}}' "$container_id" | grep -Fxq "$GCH_SUPABASE_NETWORK_ID"; then network_ok=false; fi
+            ports="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$container_id")"
+            this_count="$(printf '%s\n' "$ports" | jq '[to_entries[] | select(.value != null) | .value[]] | length')"
+            published_port_count=$((published_port_count + this_count))
+            if ! printf '%s\n' "$ports" | jq -e 'to_entries | all(.[]; .value == null or all(.value[]; .HostIp == "127.0.0.1"))' >/dev/null; then loopback_ok=false; fi
+          done
+          printf 'phase=network network_ok=%s loopback_ok=%s published_port_count=%s\n' "$network_ok" "$loopback_ok" "$published_port_count"
+          if [ "$network_ok" != true ]; then printf 'phase=network category=network_mismatch exit_code=1\n'; exit 1; fi
+          if [ "$loopback_ok" != true ] || [ "$published_port_count" -eq 0 ]; then printf 'phase=network category=port_binding_invalid exit_code=1\n'; exit 1; fi
+          printf 'phase=network category=success exit_code=0\n'
 
       - name: Install SQL, create synthetic fixture and exercise Auth and REST
         shell: bash
@@ -187,6 +257,7 @@ jobs:
           if [ -d "$GCH_SUPABASE_DIR" ]; then
             (cd "$GCH_SUPABASE_DIR" && supabase stop --no-backup) > /dev/null 2>&1
           fi
+          rm -f -- "$RUNNER_TEMP/gch-v341-supabase-start.log"
           if [ -n "${GCH_DOCKER_NETWORK_NAME:-}" ]; then
             network_check="$(docker network inspect --format '{{.Driver}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.gch.v341.e2e"}}' "$GCH_DOCKER_NETWORK_NAME" 2>/dev/null)"
             if [ "$network_check" = 'bridge|127.0.0.1|true' ]; then

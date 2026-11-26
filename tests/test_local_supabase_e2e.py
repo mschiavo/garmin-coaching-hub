@@ -117,13 +117,23 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn('!= "$RUNNER_TEMP/gch-v341-supabase"', workflow)
         self.assertIn("com.docker.network.bridge.host_binding_ipv4=127.0.0.1", workflow)
         self.assertIn("com.gch.v341.e2e=true", workflow)
-        self.assertIn('SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" supabase start', workflow)
+        self.assertIn('SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" SUPABASE_USE_SLIM_IMAGES=false', workflow)
+        self.assertIn("-x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit", workflow)
+        self.assertIn("name: Inspect ephemeral service count and states", workflow)
+        self.assertIn("name: Verify pinned service image tags", workflow)
+        self.assertIn("name: Verify isolated network and loopback-only ports", workflow)
+        self.assertIn("phase=startup category=%s exit_code=%s", workflow)
+        self.assertIn("phase=container_inventory category=container_count_mismatch", workflow)
+        self.assertIn("phase=image_tags category=image_tag_mismatch", workflow)
+        self.assertIn("phase=network category=port_binding_invalid", workflow)
+        self.assertNotIn("cat \"$log_file\"", workflow)
+        self.assertNotIn("tee", workflow)
         self.assertIn("HostIp == \"127.0.0.1\"", workflow)
         self.assertIn("GCH_E2E_POSTGRES_CONTAINER_ID", workflow)
         self.assertNotIn("17.6.1.136", workflow)
         for image_tag in (
-            "supabase/postgres:17\\.12\\.0\\.002", "supabase/gotrue:v2\\.198\\.0",
-            "postgrest/postgrest:v16\\.6", "kong:2\\.8\\.1",
+            "supabase/postgres:17.12.0.002", "supabase/gotrue:v2.198.0",
+            "postgrest/postgrest:v16.6", "kong:2.8.1",
         ):
             self.assertIn(image_tag, workflow)
         harness = Path("tools/local_supabase_e2e.py").read_text(encoding="utf-8")

@@ -73,3 +73,43 @@ Il test copre implementazioni locali self-hosted di GoTrue/PostgREST e non prova
 1. Eseguire manualmente la workflow solo quando si autorizza un’esecuzione GitHub-hosted e osservare tutti gli step fino al cleanup.
 2. Correggere eventuali incompatibilità rilevate prima di considerare concluso il gate; il presente incarico non autorizza a pubblicare il nuovo commit.
 3. Tenere separata ogni verifica managed staging/Garmin e qualsiasi operazione di produzione, che non fanno parte di questo collaudo locale.
+
+## Diagnosi del secondo fallimento E2E — 26 novembre 2026
+
+Run esaminata: [45808291687](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45808291687), commit `0cb41de3b88c5d99bb68cfc828723e796535ff42`.
+
+### Evidenze confermate
+
+- Il log mostra esito positivo per la validazione della configurazione e la creazione della rete bridge dedicata.
+- Il comando `supabase start` era racchiuso nello stesso script delle asserzioni sui container. L'output CLI era soppresso. Se il comando avesse restituito un codice non zero, lo script avrebbe stampato la diagnostica esplicita `Local Supabase stack startup failed`; tale messaggio non compare nel log. L'evidenza indica quindi che l'avvio ha restituito zero e che il fallimento è avvenuto in una verifica successiva nello stesso step.
+- Il processo termina con codice 1 circa 18 secondi dopo l'inizio dello step. Poiché i controlli precedenti usavano `test`/`grep` con `set -e`, il log non distingue quale asserzione abbia fallito. Non è possibile attribuire con certezza quel codice a conteggio, tag, rete o binding senza una nuova esecuzione diagnostica.
+- L'esame del sorgente della release CLI v3.4.0 conferma che `-x` è la lista dei servizi esclusi e che il flag `SUPABASE_USE_SLIM_IMAGES` abilita le immagini slim soltanto con valore `true` o `1`. I tag controllati corrispondono al manifest Dockerfile della release: PostgreSQL `17.12.0.002`, GoTrue `v2.198.0`, PostgREST `v16.6` e Kong `2.8.1`. Con Auth/API/DB abilitati, gli altri servizi elencati in `-x` e nella configurazione sono disabilitati/esclusi, il conteggio atteso resta quattro (DB, Auth, REST, Kong).
+
+### Modifiche applicate per rendere attribuibile il prossimo errore
+
+- Lo startup è ora uno step autonomo e non esegue controlli Docker successivi. Il suo output è conservato solo temporaneamente con permessi restrittivi, classificato con pattern non sensibili e cancellato prima di terminare; sui log GitHub vengono stampati soltanto fase, categoria e codice d'uscita. Non viene mai riversato output CLI integrale.
+- `SUPABASE_USE_SLIM_IMAGES=false` è impostato esplicitamente sul comando di avvio, rendendo deterministica la corrispondenza tra il manifest upstream della CLI 3.4.0 e le verifiche dei tag.
+- Inventario/stato container, tag immagini e isolamento rete/binding loopback sono step separati. Riportano conteggi e booleani e falliscono con categorie distinte (`container_count_mismatch`, `container_not_running`, `image_tag_mismatch`, `network_mismatch`, `port_binding_invalid`). Non stampano ID, riferimenti immagine, configurazioni, credenziali o payload.
+- Il controllo delle porte continua a richiedere che ogni binding pubblicato sia `127.0.0.1`; la rete deve corrispondere all'ID creato per la run. Rimangono intatti il nome/identità DB, la fixture locale isolata, `staging_connection()`, il trigger limitato al branch e il cleanup `always()`.
+- Non è stata dimostrata offline alcuna incompatibilità di `-x`, manifest, rete o numero container. Docker non è disponibile su questa macchina, quindi la nuova diagnostica non è stata esercitata su una stack reale e la causa puntuale tra le asserzioni post-start resta da confermare in una futura run GitHub autorizzata.
+
+### Verifiche di questo intervento
+
+Controlli eseguiti localmente sul worktree Windows:
+
+| Controllo | Risultato |
+| --- | --- |
+| Actionlint sul workflow modificato | Superato |
+| Python `unittest discover -s tests` | 27 test superati |
+| PostgreSQL sintetico via `Invoke-V341Staging.ps1 -Task Local` | 17 test SQL superati; dump/restore isolato completato e cluster arrestato |
+| Dashboard `test:load` | 5 superati |
+| Dashboard `test:analytics` | 15 superati |
+| Playwright desktop/mobile preesistente | 16 superati |
+| Build TypeScript/Vite | Superata |
+| `npm audit --audit-level=moderate` | 0 vulnerabilità |
+| Gitleaks | Nessun segreto rilevato |
+| `py_compile` dei moduli/test Python interessati e `git diff --check` | Superati |
+
+Un tentativo iniziale di invocare la suite SQL direttamente, fuori dal runner che predispone il DSN e il cluster sintetico, è terminato senza eseguire test (`V34_TEST_DSN` assente); non è conteggiato come test fallito del prodotto. L'esecuzione successiva con il runner isolato è quella riportata sopra.
+
+La run GitHub non è stata rilanciata; non è stato effettuato push, merge, deploy né accesso a servizi esterni. Docker non è disponibile localmente, quindi startup Supabase e nuove asserzioni runtime non sono state esercitate. Il gate E2E resta aperto fino a una run verde sul commit che contiene la diagnostica.
