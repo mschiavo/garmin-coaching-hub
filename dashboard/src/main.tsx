@@ -86,7 +86,7 @@ function App(){
    setProgress(null);
    setAuthError('');
    setAuthLoading(true);
-   void supabase.auth.signOut().then(({ error }) => {
+   void supabase.auth.signOut({ scope: 'local' }).then(({ error }) => {
      if (error) throw error;
    }).catch(() => setAuthError('Disconnessione remota non confermata. Accedi di nuovo per continuare.'))
      .finally(() => {

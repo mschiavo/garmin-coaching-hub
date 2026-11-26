@@ -19,10 +19,13 @@ const coverage = [
 ];
 
 async function setup(page: Page) {
-  const state = { denied: false, failPage: false, duplicate: false, conflict: false, logoutFails: false,
-    pause: false, legacy: 0, pending: 0, pages: 0, unexpected: [] as string[] };
+  const state = { denied: false, deniedSecond: false, invalidCredentials: false, failPage: false, duplicate: false,
+    conflict: false, logoutFails: false, pause: false, pauseAuth: false, legacy: 0, pending: 0,
+    authPending: 0, pages: 0, unexpected: [] as string[] };
   let release = () => {};
   const wait = () => new Promise<void>(resolve => { release = resolve; });
+  let releaseAuth = () => {};
+  const waitAuth = () => new Promise<void>(resolve => { releaseAuth = resolve; });
   await page.clock.setFixedTime(new Date('2024-03-04T23:30:00Z'));
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -30,6 +33,12 @@ async function setup(page: Page) {
     if (url.hostname === 'fonts.googleapis.com' && url.pathname === '/css2') return route.fulfill({ body: '', contentType: 'text/css' });
     if (url.origin === 'https://analytics-fixture.invalid') {
       if (url.pathname === '/auth/v1/token') {
+        if (state.invalidCredentials) return route.fulfill({ status: 400, json: { msg: 'Invalid login credentials' } });
+        if (state.pauseAuth) {
+          state.pauseAuth = false;
+          state.authPending++;
+          await waitAuth();
+        }
         const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
         const email = route.request().postDataJSON().email as string;
         const userId = email === 'second@example.invalid' ? 'second-user' : 'synthetic-user';
@@ -56,7 +65,7 @@ async function setup(page: Page) {
         ] : coverage;
         if (fn === 'dashboard_data') state.legacy++;
         if (fn === 'dashboard_metadata_v2') {
-          if (state.denied) return route.fulfill({ status: 403, json: { code: '42501' } });
+          if (state.denied || (state.deniedSecond && second)) return route.fulfill({ status: 403, json: { code: '42501' } });
           return route.fulfill({ json: {
             api_version: 2, schema_version: 34, revision: '1', reliability_version: 1,
             coverage_status: second ? 'unknown' : 'available', updated_at: '2024-03-02T12:00:00Z',
@@ -87,7 +96,7 @@ async function setup(page: Page) {
     state.unexpected.push(url.origin + url.pathname);
     return route.abort();
   });
-  return { state, resume: () => release() };
+  return { state, resume: () => release(), resumeAuth: () => releaseAuth() };
 }
 
 async function signIn(page: Page) {
@@ -141,6 +150,93 @@ test('403 and page errors keep incomplete archives out of analytics', async ({ p
   await page.getByRole('button', { name: 'Aggiorna', exact: true }).click();
   await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
   expect(state.legacy).toBe(0);
+  expect(state.unexpected).toEqual([]);
+});
+
+test('valid Auth session remains distinct from allowlist authorization denial', async ({ page }) => {
+  const { state } = await setup(page);
+  state.denied = true;
+  await page.goto('/');
+  await page.getByLabel('Email').fill('runner@example.invalid');
+  await page.getByLabel('Password').fill('synthetic-password');
+  await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Accesso negato all’archivio.');
+  await expect(page.getByLabel('Email')).toHaveCount(0);
+  await expect(page.locator('.metric-grid')).toHaveCount(0);
+  await expect(page.getByRole('table')).toHaveCount(0);
+  expect(state.pages).toBe(0);
+  expect(state.unexpected).toEqual([]);
+});
+
+test('invalid credentials stay on the login screen and never become an archive denial', async ({ page }) => {
+  const { state } = await setup(page);
+  state.invalidCredentials = true;
+  await page.goto('/');
+  await page.getByLabel('Email').fill('runner@example.invalid');
+  await page.getByLabel('Password').fill('synthetic-invalid-password');
+  await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
+  await expect(page.getByRole('alert')).toHaveText('Accesso non riuscito. Verifica le credenziali e riprova.');
+  await expect(page.getByRole('heading', { name: /Bentornato/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toHaveCount(0);
+  expect(state.pages).toBe(0);
+  expect(state.unexpected).toEqual([]);
+});
+
+test('Auth response and event complete before the dashboard session is rendered', async ({ page }) => {
+  const { state, resumeAuth } = await setup(page);
+  state.pauseAuth = true;
+  await page.goto('/');
+  await page.getByLabel('Email').fill('runner@example.invalid');
+  await page.getByLabel('Password').fill('synthetic-password');
+  await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
+  await expect.poll(() => state.authPending).toBe(1);
+  await expect(page.getByRole('heading', { name: /Bentornato/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toHaveCount(0);
+  resumeAuth();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Qualità dei dati' }).click();
+  await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
+  expect(state.unexpected).toEqual([]);
+});
+
+test('authorized to denied to authorized account transition keeps Auth and RPC authorization separate', async ({ page }) => {
+  const { state } = await setup(page);
+  await signIn(page);
+  await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Disconnetti' }).click();
+  await expect(page.getByRole('heading', { name: 'Bentornato.' })).toBeVisible();
+  state.deniedSecond = true;
+  await page.getByLabel('Email').fill('second@example.invalid');
+  await page.getByLabel('Password').fill('synthetic-password');
+  await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
+  await expect(page.getByRole('heading', { name: /Qualità dei dati/ })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Accesso negato all’archivio.');
+  await expect(page.locator('.metric-grid')).toHaveCount(0);
+  await expect(page.getByRole('table')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Disconnetti' }).click();
+  await expect(page.getByRole('heading', { name: 'Bentornato.' })).toBeVisible();
+  state.deniedSecond = false;
+  await page.getByLabel('Email').fill('runner@example.invalid');
+  await page.getByLabel('Password').fill('synthetic-password');
+  await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
+  await expect(page.getByRole('heading', { name: /Qualità dei dati/ })).toBeVisible();
+  await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
+  expect(state.unexpected).toEqual([]);
+});
+
+test('failed remote logout still clears the local Auth session across reload', async ({ page }) => {
+  const { state } = await setup(page);
+  await signIn(page);
+  await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
+  state.logoutFails = true;
+  await page.getByRole('button', { name: 'Disconnetti' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Disconnessione remota non confermata. Accedi di nuovo per continuare.');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Bentornato.' })).toBeVisible();
+  await expect(page.getByText(/Attività 2501\/2501/)).toHaveCount(0);
   expect(state.unexpected).toEqual([]);
 });
 

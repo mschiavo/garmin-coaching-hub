@@ -34,7 +34,8 @@ test('live local Supabase login, analytics, account switch and logout', async ({
   await page.getByLabel('Email').fill(users.denied_email);
   await page.getByLabel('Password').fill(users.denied_password);
   await page.getByRole('button', {name: /Accedi alla dashboard/}).click();
-  await expect(page.getByRole('heading', {name: /La tua performance/})).toBeVisible();
+  // Account changes preserve the selected section; this flow is still on Quality after logout.
+  await expect(page.getByRole('heading', {name: /Qualità dei dati/})).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Accesso negato all’archivio');
   await expect(page.locator('.metric-grid')).toHaveCount(0);
   await expect(page.getByRole('table')).toHaveCount(0);
@@ -44,7 +45,7 @@ test('live local Supabase login, analytics, account switch and logout', async ({
   await page.getByLabel('Email').fill(users.allowed_email);
   await page.getByLabel('Password').fill(users.allowed_password);
   await page.getByRole('button', {name: /Accedi alla dashboard/}).click();
-  await expect(page.getByRole('heading', {name: /La tua performance/})).toBeVisible();
+  await expect(page.getByRole('heading', {name: /Qualità dei dati/})).toBeVisible();
   await expect(page.getByText('API V2', {exact: true})).toBeVisible();
   await expect.poll(() => apiResponses.filter(status => status >= 200 && status < 300).length).toBeGreaterThan(4);
   expect(apiResponses.every(status => status < 500)).toBeTruthy();

@@ -202,3 +202,42 @@ Per la prossima run, l'harness aggiunge una diagnostica a allowlist: categoria l
 La run successiva [45843723586](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45843723586), sul commit `3b36ee40086066be8a7d1fb29f8508e3d5e5aadb`, ha confermato di nuovo che il solo fallimento rimane il test dashboard live: il riepilogo sicuro ha classificato un timeout su `toBeVisible`, ma ha indicato la riga 11, cioè la dichiarazione del test. Anche la run [45844463017](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45844463017), sul commit `a395302a73062684a5ec805905cf89387b9d1f21`, ha restituito la stessa linea. Questo dimostra che il reporter testuale configurato non fornisce al parser una posizione del frame fallito. Nella versione Playwright 1.65.1 fissata, il reporter JSON serializza `errorLocation` separatamente dalla posizione della dichiarazione: il workflow locale usa ora `--reporter=json` (output sempre catturato) e l'harness ricava la posizione esclusivamente dal campo strutturato `errorLocation`. La regressione sintetica copre un risultato `timedOut`, la differenza tra linea dichiarativa e frame dell'asserzione e l'omissione di password/JWT presenti nel report. La causa funzionale del timeout resta aperta fino alla prossima run; non viene fatta alcuna modifica speculativa a dashboard o test E2E.
 
 La run [45846028051](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45846028051), sul commit `ef2e8854d6f180cb42e126f5bacf741cfd8f59de`, ha confermato SQL/Auth/REST e cleanup superati ma ha prodotto `playwright_report_unclassified`. Il sorgente Playwright 1.65.1 chiarisce che il titolo del test è serializzato su `spec.title`, mentre `spec.tests[]` contiene i risultati senza il titolo ripetuto; l'harness cercava erroneamente il titolo nel livello interno. La correzione segue la struttura effettiva del reporter e il test sintetico ora riproduce la forma JSON reale (inclusi `file`/`line` della spec e `errorLocation` del risultato). La causa del timeout browser resta quindi non ancora diagnosticata; non è stato modificato il comportamento dell'applicazione.
+
+## Diagnosi cambio account — run 45846744068
+
+La run [45846744068](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/45846744068) ha superato i gate SQL/Auth/API e ha fallito il test browser live in `dashboard/tests/supabase.integration.spec.ts:37`, subito dopo il login dell'utente sintetico escluso dall'allowlist. L'asserzione attendeva il titolo della panoramica `La tua performance`.
+
+### Causa dimostrata del fallimento E2E
+
+La sequenza del test seleziona `Qualità dei dati` per l'utente autorizzato, poi esegue logout e login con l'utente negato. In `dashboard/src/main.tsx`, `section` è stato di navigazione indipendente dall'identità: il cambio di sessione invalida risultati, ricerca, offset temporale, errore e progress, ma non resetta la sezione corrente. Perciò il secondo account viene renderizzato correttamente nella sezione ancora selezionata, `Qualità dei dati`; l'asserzione sulla panoramica era falsa. L'autenticazione non fallisce: l'interfaccia resta autenticata, le RPC protette vengono rifiutate e compare `Accesso negato all’archivio.`. Il test è stato corretto per verificare la sezione mantenuta e l'assenza di dati. Il successivo login autorizzato nella stessa sezione verifica il ripristino dei dati.
+
+La sequenza è stata riprodotta localmente nel test Playwright di regressione sul componente e sul client Supabase JS effettivi, con endpoint HTTP sintetici controllati: autorizzato → logout → negato → RPC 403 senza righe → logout → autorizzato → lettura nuovamente consentita. L'asserzione sulla panoramica fallisce nello scenario in cui la navigazione è rimasta su Qualità, mentre quella coerente con la navigazione reale passa. Nessuna condizione speciale per Playwright è stata aggiunta all'applicazione.
+
+### Difetto reale separato: errore del logout remoto
+
+L'analisi del client Auth effettivamente installato (`@supabase/auth-js` 2.119.2) e la sua documentazione di migrazione confermano che `signOut()` con scope predefinito/global, se la revoca remota fallisce, può restituire errore mantenendo la sessione locale e senza emettere `SIGNED_OUT`. L'applicazione invece aveva già mostrato la schermata login in React. Questo causava divergenza: al reload la sessione persistita autenticava nuovamente l'utente e i suoi dati potevano riapparire.
+
+Il difetto è stato riprodotto prima della correzione con una risposta sintetica HTTP 400 alla revoca: dopo il logout appariva la schermata login, ma dopo reload veniva ripristinata la sessione precedente. La correzione usa `supabase.auth.signOut({ scope: 'local' })`, che revoca localmente la sessione e notifica l'app anche se la revoca remota non riesce. L'interfaccia conserva l'avviso `Disconnessione remota non confermata`; non dichiara riuscita la revoca degli altri dispositivi. La regressione verifica logout, errore remoto, reload e assenza dei dati precedenti.
+
+### Regressioni e limiti di verifica
+
+I test Playwright locali usano il componente, il client Supabase JS e richieste HTTP intercettate verso endpoint sintetici; coprono autenticazione valida, esclusione allowlist, credenziali non valide, risposta Auth ritardata, transizioni fra account, richieste dati obsolete e errore remoto di logout. Sono test realistici della logica client ma non sostituiscono il gate integrato con i servizi Supabase reali.
+
+Docker e Supabase CLI non sono disponibili sull'host Windows: la run live con Auth/PostgREST locali non è stata riprodotta qui. Nessun nuovo E2E remoto è stato avviato. Restano da verificare sul runner effimero la sequenza browser integrata aggiornata e la reale interazione di logout con GoTrue. La run 45846744068 rimane fallita; il gate E2E non è dichiarato verde.
+
+### Verifiche locali della diagnosi
+
+| Verifica | Risultato |
+| --- | --- |
+| Playwright dashboard desktop/mobile, `npm run test:charts` con Node 22.23.5 | 26 superati |
+| Regressioni Auth/sessione mirate desktop | 6 superate |
+| Python `unittest discover` nell'ambiente virtuale del repository | 29 superati |
+| Training Load | 5 superati |
+| Analytics/API | 15 superati |
+| Build TypeScript/Vite | Superata |
+| `npm audit --audit-level=moderate` | 0 vulnerabilità |
+| Actionlint | Superato |
+| Gitleaks sull'intero repository | Nessun leak rilevato |
+| `git diff --check` | Superato |
+
+Un primo run Playwright sovrapposto a un secondo avvio locale ha avuto un errore `ENOENT` sull'artifact di trace; il secondo avvio ha rilevato la preview già in uso. Dopo aver lasciato terminare il processo e aver eseguito Playwright in modo isolato, l'intera matrice desktop/mobile è passata (26/26). Non si attribuisce quindi quel primo errore al codice. SQL/backup-restore e integrazione live Supabase non sono stati rieseguiti: Docker e CLI non sono disponibili localmente e non è autorizzato avviare una nuova run remota.
