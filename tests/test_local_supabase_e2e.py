@@ -99,10 +99,9 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("version: 3.4.0", workflow)
-        self.assertIn("supabase/postgres:17.6.1.136", workflow)
-        self.assertIn("supabase/gotrue:v2.198.0", workflow)
-        self.assertIn("postgrest/postgrest:v14.18", workflow)
-        self.assertIn("kong/kong:3.9.5", workflow)
+        self.assertNotRegex(workflow, r"(?m)^\s+(?:image|kong_image)\s*=")
+        self.assertRegex(workflow, r"(?m)^\s+\[auth\.email\]\n\s+enabled = true$")
+        self.assertNotRegex(workflow, r"(?m)^\s+\[auth\.email\]\n\s+enable_signup\s*=")
         self.assertIn("supabase config validate", workflow)
         self.assertNotIn("secrets.", workflow)
         self.assertNotIn("supabase link", workflow)
@@ -116,6 +115,17 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("pg_control_system()", workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn('!= "$RUNNER_TEMP/gch-v341-supabase"', workflow)
+        self.assertIn("com.docker.network.bridge.host_binding_ipv4=127.0.0.1", workflow)
+        self.assertIn("com.gch.v341.e2e=true", workflow)
+        self.assertIn('SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" supabase start', workflow)
+        self.assertIn("HostIp == \"127.0.0.1\"", workflow)
+        self.assertIn("GCH_E2E_POSTGRES_CONTAINER_ID", workflow)
+        self.assertNotIn("17.6.1.136", workflow)
+        for image_tag in (
+            "supabase/postgres:17\\.12\\.0\\.002", "supabase/gotrue:v2\\.198\\.0",
+            "postgrest/postgrest:v16\\.6", "kong:2\\.8\\.1",
+        ):
+            self.assertIn(image_tag, workflow)
         harness = Path("tools/local_supabase_e2e.py").read_text(encoding="utf-8")
         fixture = Path("tools/staging_fixture.py").read_text(encoding="utf-8")
         self.assertIn('DB_NAME = "postgres"', harness)

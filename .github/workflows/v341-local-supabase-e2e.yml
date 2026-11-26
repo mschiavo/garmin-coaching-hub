@@ -76,14 +76,11 @@ jobs:
           schemas = ["public", "graphql_public"]
           extra_search_path = ["public", "extensions"]
           max_rows = 10000
-          image = "postgrest/postgrest:v14.18"
-          kong_image = "kong/kong:3.9.5"
 
           [db]
           port = 54322
           shadow_port = 54320
           major_version = 17
-          image = "supabase/postgres:17.6.1.136"
 
           [auth]
           enabled = true
@@ -91,10 +88,9 @@ jobs:
           additional_redirect_urls = ["http://127.0.0.1:4179"]
           jwt_expiry = 3600
           enable_signup = true
-          image = "supabase/gotrue:v2.198.0"
 
           [auth.email]
-          enable_signup = true
+          enabled = true
           double_confirm_changes = false
           enable_confirmations = false
 
@@ -112,6 +108,23 @@ jobs:
           TOML
           echo "GCH_SUPABASE_DIR=$GCH_SUPABASE_DIR" >> "$GITHUB_ENV"
 
+      - name: Create loopback-only Docker bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          network_name="gch-v341-e2e-${GITHUB_RUN_ID}"
+          network_id="$(docker network create \
+            --driver bridge \
+            --label com.gch.v341.e2e=true \
+            --opt com.docker.network.bridge.host_binding_ipv4=127.0.0.1 \
+            "$network_name")"
+          network_check="$(docker network inspect --format '{{.Driver}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.gch.v341.e2e"}}' "$network_id")"
+          test "$network_check" = 'bridge|127.0.0.1|true'
+          {
+            echo "GCH_DOCKER_NETWORK_NAME=$network_name"
+            echo "GCH_SUPABASE_NETWORK_ID=$network_id"
+          } >> "$GITHUB_ENV"
+
       - name: Validate pinned local Supabase configuration
         shell: bash
         run: |
@@ -124,18 +137,40 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GCH_SUPABASE_DIR"
-          if ! supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit > /dev/null 2>&1; then
+          if ! SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit > /dev/null 2>&1; then
             echo "Local Supabase stack startup failed; service output is intentionally withheld."
             exit 1
           fi
+          mapfile -t container_ids < <(docker ps --filter 'label=com.supabase.cli.project=gch-v341-e2e' --format '{{.ID}}')
+          test "${#container_ids[@]}" -eq 4
+          mapfile -t image_refs < <(docker inspect --format '{{.Config.Image}}' "${container_ids[@]}")
+          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)supabase/postgres:17\.12\.0\.002$'
+          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)supabase/gotrue:v2\.198\.0$'
+          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)postgrest/postgrest:v16\.6$'
+          printf '%s\n' "${image_refs[@]}" | grep -Eq '(^|/)kong:2\.8\.1$'
+          mapfile -t postgres_ids < <(
+            for container_id in "${container_ids[@]}"; do
+              image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+              if [[ "$image_ref" =~ (^|/)supabase/postgres:17\.12\.0\.002$ ]]; then
+                printf '%s\n' "$container_id"
+              fi
+            done
+          )
+          test "${#postgres_ids[@]}" -eq 1
+          printf 'GCH_E2E_POSTGRES_CONTAINER_ID=%s\n' "${postgres_ids[0]}" >> "$GITHUB_ENV"
+          for container_id in "${container_ids[@]}"; do
+            docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{printf "%s " $network.NetworkID}}{{end}}' "$container_id" | grep -Fq "$GCH_SUPABASE_NETWORK_ID"
+            docker inspect --format '{{json .NetworkSettings.Ports}}' "$container_id" |
+              jq -e 'to_entries | all(.[]; .value == null or all(.value[]; .HostIp == "127.0.0.1"))' > /dev/null
+          done
           printf 'GCH_SUPABASE_DIR=%s\n' "$GCH_SUPABASE_DIR" >> "$GITHUB_ENV"
 
       - name: Install SQL, create synthetic fixture and exercise Auth and REST
         shell: bash
         run: |
           set -euo pipefail
-          GCH_E2E_EXPECTED_SYSTEM_ID="$(docker ps --filter ancestor=supabase/postgres:17.6.1.136 --format '{{.ID}}' | while read -r id; do docker exec "$id" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()'; done)"
-          test "$(printf '%s\n' "$GCH_E2E_EXPECTED_SYSTEM_ID" | wc -l)" -eq 1
+          GCH_E2E_EXPECTED_SYSTEM_ID="$(docker exec "$GCH_E2E_POSTGRES_CONTAINER_ID" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()')"
+          test -n "$GCH_E2E_EXPECTED_SYSTEM_ID"
           export GCH_E2E_EXPECTED_SYSTEM_ID
           GCH_SUPABASE_DIR="$GCH_SUPABASE_DIR" python tools/local_supabase_e2e.py
 
@@ -151,5 +186,11 @@ jobs:
           fi
           if [ -d "$GCH_SUPABASE_DIR" ]; then
             (cd "$GCH_SUPABASE_DIR" && supabase stop --no-backup) > /dev/null 2>&1
+          fi
+          if [ -n "${GCH_DOCKER_NETWORK_NAME:-}" ]; then
+            network_check="$(docker network inspect --format '{{.Driver}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.gch.v341.e2e"}}' "$GCH_DOCKER_NETWORK_NAME" 2>/dev/null)"
+            if [ "$network_check" = 'bridge|127.0.0.1|true' ]; then
+              docker network rm "$GCH_DOCKER_NETWORK_NAME" > /dev/null 2>&1
+            fi
           fi
           rm -rf -- "$RUNNER_TEMP/gch-v341-supabase"
