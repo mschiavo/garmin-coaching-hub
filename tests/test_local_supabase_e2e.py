@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 import unittest
@@ -28,26 +29,40 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         self.assertIn("Synthetic end-to-end probes", result.stdout)
 
     def test_dashboard_failure_summary_reports_only_allowlisted_diagnostics(self):
-        output = """1) [chromium] › tests/supabase.integration.spec.ts:37:5 › live local Supabase login, analytics, account switch and logout
-Error: expect(locator).toBeVisible() failed
-Timeout 5000ms exceeded
-password=synthetic-secret bearer eyJhbGciOiJIUzI1NiJ9.synthetic-signature
-"""
+        output = json.dumps({
+            "suites": [{"specs": [{
+                "title": "live local Supabase login, analytics, account switch and logout",
+                "location": {"file": "tests/supabase.integration.spec.ts", "line": 11},
+                "tests": [{"title": "live local Supabase login, analytics, account switch and logout",
+                           "results": [{"status": "timedOut",
+                                        "errorLocation": {"file": "tests/supabase.integration.spec.ts",
+                                                          "line": 21, "column": 3},
+                                        "error": {"message": "Timeout 5000ms exceeded; "
+                                                                 "expect(locator).toBeVisible() failed "
+                                                                 "password=synthetic-secret "
+                                                                 "bearer eyJhbGciOiJIUzI1NiJ9.synthetic-signature"}}]}],
+            }]}],
+            "stats": {"unexpected": 1},
+        })
         summary = dashboard_failure_summary(output, 1)
         self.assertEqual(
             summary,
-            "category=timeout test=live_local_supabase_dashboard source_line=37 "
+            "category=timeout test=live_local_supabase_dashboard source_line=21 "
             "matcher=toBeVisible exit_code=1",
         )
         self.assertNotIn("synthetic-secret", summary)
         self.assertNotIn("eyJhbGci", summary)
 
         assertion = dashboard_failure_summary(
-            "1) [chromium] › tests/supabase.integration.spec.ts:11:1 › live local Supabase "
-            "login, analytics, account switch and logout\n"
-            "Error: expect(page).toHaveCount() failed\n"
-            "at tests/supabase.integration.spec.ts:42:7\n"
-            "expected 1, received 0", 1,
+            json.dumps({"suites": [{"specs": [{
+                "title": "live local Supabase login, analytics, account switch and logout",
+                "tests": [{"title": "live local Supabase login, analytics, account switch and logout",
+                           "results": [{"status": "failed",
+                                        "errorLocation": {"file": "tests/supabase.integration.spec.ts",
+                                                          "line": 42, "column": 7},
+                                        "error": {"message": "expect(page).toHaveCount() failed; "
+                                                                 "expected 1, received 0"}}]}],
+            }]}]}), 1,
         )
         self.assertEqual(
             assertion,

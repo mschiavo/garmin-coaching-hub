@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import json
 import os
 from pathlib import Path
 import re
@@ -23,7 +24,10 @@ LOCAL_HOST = "127.0.0.1"
 LOCAL_PORT = "54322"
 API_BASE = "http://127.0.0.1:54321"
 SYSTEM_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+LIVE_DASHBOARD_TEST = "live local Supabase login, analytics, account switch and logout"
+SAFE_PLAYWRIGHT_MATCHERS = (
+    "toBeVisible", "toContainText", "toHaveCount", "toBeTruthy", "toBeGreaterThan",
+)
 
 
 class LocalTargetError(ValueError):
@@ -31,37 +35,68 @@ class LocalTargetError(ValueError):
 
 
 def dashboard_failure_summary(output: str, returncode: int) -> str:
-    """Return allowlisted Playwright diagnostics without echoing captured output."""
+    """Summarize Playwright JSON diagnostics without echoing report contents."""
     if returncode == 0:
         return "category=success"
-    safe_output = ANSI_ESCAPE.sub("", output)
-    if re.search(r"Timeout(?:Error)?|timed out|\d+ms exceeded", safe_output, re.IGNORECASE):
-        category = "timeout"
-    elif re.search(r"browserType\.launch|Executable doesn't exist", safe_output, re.IGNORECASE):
-        category = "browser_setup"
-    elif re.search(r"ERR_CONNECTION|page\.goto", safe_output, re.IGNORECASE):
-        category = "preview_or_api_connection"
-    elif re.search(r"expect\([^\n]*failed", safe_output, re.IGNORECASE):
-        category = "assertion_failure"
-    else:
-        category = "playwright_failure_unclassified"
+    try:
+        report = json.loads(output)
+    except (TypeError, json.JSONDecodeError):
+        report = None
 
-    fields = [f"category={category}"]
-    if "live local Supabase login, analytics, account switch and logout" in safe_output:
-        fields.append("test=live_local_supabase_dashboard")
+    fields = []
+    test_result = None
+    test_location = None
+    error_text = ""
+
+    def visit(suites):
+        nonlocal test_result, test_location, error_text
+        for suite in suites if isinstance(suites, list) else ():
+            if not isinstance(suite, dict):
+                continue
+            for spec in suite.get("specs", ()):
+                if not isinstance(spec, dict):
+                    continue
+                for test in spec.get("tests", ()):
+                    if not isinstance(test, dict) or test.get("title") != LIVE_DASHBOARD_TEST:
+                        continue
+                    test_location = spec.get("location")
+                    for result in test.get("results", ()):
+                        if result.get("status") in ("failed", "timedOut", "interrupted"):
+                            test_result = result
+                            error = result.get("error") or {}
+                            error_text = " ".join(str(error.get(key, "")) for key in ("message", "stack"))
+                            return
+            visit(suite.get("suites", ()))
+
+    if report is not None:
+        visit(report.get("suites", ()))
+    if test_result is None:
+        category = "playwright_report_unclassified" if report is not None else "playwright_report_invalid"
+        fields.extend((f"category={category}", "test=unidentified"))
     else:
-        fields.append("test=unidentified")
-    # Playwright prints the test declaration before the error's stack frames; use
-    # the last location in this spec so the result identifies the failing call.
-    sources = list(re.finditer(r"tests[/\\]supabase\.integration\.spec\.ts:(\d+):\d+", safe_output))
-    if sources:
-        fields.append(f"source_line={sources[-1].group(1)}")
-    matcher = re.search(
-        r"\.(toBeVisible|toContainText|toHaveCount|toBeTruthy|toBeGreaterThan)\(",
-        safe_output,
-    )
-    if matcher:
-        fields.append(f"matcher={matcher.group(1)}")
+        if re.search(r"Timeout(?:Error)?|timed out|\d+ms exceeded", error_text, re.IGNORECASE):
+            category = "timeout"
+        elif re.search(r"browserType\.launch|Executable doesn't exist", error_text, re.IGNORECASE):
+            category = "browser_setup"
+        elif re.search(r"ERR_CONNECTION|page\.goto", error_text, re.IGNORECASE):
+            category = "preview_or_api_connection"
+        elif re.search(r"expect\([^\n]*failed", error_text, re.IGNORECASE):
+            category = "assertion_failure"
+        else:
+            category = "playwright_failure_unclassified"
+        fields.extend((f"category={category}", "test=live_local_supabase_dashboard"))
+        error_location = test_result.get("errorLocation") or {}
+        if (isinstance(error_location, dict)
+                and Path(str(error_location.get("file", ""))).name == "supabase.integration.spec.ts"
+                and isinstance(error_location.get("line"), int)
+                and error_location["line"] > 0):
+            fields.append(f"source_line={error_location['line']}")
+        elif isinstance(test_location, dict) and isinstance(test_location.get("line"), int):
+            fields.append(f"test_decl_line={test_location['line']}")
+        for name in SAFE_PLAYWRIGHT_MATCHERS:
+            if re.search(rf"\.{name}\(", error_text):
+                fields.append(f"matcher={name}")
+                break
     fields.append(f"exit_code={returncode}")
     return " ".join(fields)
 
@@ -287,7 +322,8 @@ def prepare(env: dict[str, str]) -> None:
                                capture_output=True, text=True, timeout=300, check=False)
         if build.returncode:
             raise LocalTargetError("Build dashboard con configurazione locale non riuscita")
-        result = subprocess.run(["npm", "run", "test:integration"], cwd="dashboard",
+        result = subprocess.run(["npm", "run", "--silent", "test:integration", "--",
+                                 "--reporter=json"], cwd="dashboard",
                                 env=dashboard_env, capture_output=True, text=True,
                                 timeout=900, check=False)
     except LocalTargetError:
