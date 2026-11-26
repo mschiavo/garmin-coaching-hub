@@ -198,16 +198,48 @@ jobs:
         run: |
           set -euo pipefail
           postgres_ok=false; auth_ok=false; rest_ok=false; kong_ok=false
+          postgrest_ref_count=0
           postgres_id=""
+          docker_ref_re='^([A-Za-z0-9.-]+(:[0-9]+)?/)?[a-z0-9]+([._-][a-z0-9]+)*(\/[a-z0-9]+([._-][a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(@sha256:[a-f0-9]{64})?$'
           for container_id in $GCH_E2E_CONTAINER_IDS; do
             image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+            if [[ ! "$image_ref" =~ $docker_ref_re ]]; then
+              printf 'phase=image_refs category=malformed_image_reference exit_code=1\n'
+              exit 1
+            fi
+            # Print only the validated .Config.Image field; no container metadata is exposed.
+            printf 'phase=image_refs docker_image_ref=%s\n' "$image_ref"
+            ref_without_digest="${image_ref%%@*}"
+            first_component="${ref_without_digest%%/*}"
+            if [[ "$ref_without_digest" == */* && ( "$first_component" == *.* || "$first_component" == *:* || "$first_component" == localhost ) ]]; then
+              image_registry="$first_component"
+              image_repository="${ref_without_digest#*/}"
+            else
+              image_registry="docker.io"
+              image_repository="$ref_without_digest"
+            fi
+            image_leaf="${ref_without_digest##*/}"
+            if [[ "$image_leaf" == *:* ]]; then image_tag="${image_leaf##*:}"; else image_tag=""; fi
+            image_repository_leaf="${image_repository##*/}"
+            if [ "$image_repository_leaf" = 'postgrest' ] || [ "$image_tag" = 'v16.6' ]; then
+              postgrest_ref_count=$((postgrest_ref_count + 1))
+              registry_ok=false; repository_ok=false; tag_ok=false
+              [ "$image_registry" = 'public.ecr.aws' ] && registry_ok=true
+              [ "$image_repository" = 'supabase/postgrest' ] && repository_ok=true
+              [ "$image_tag" = 'v16.6' ] && tag_ok=true
+              printf 'phase=image_components service=postgrest registry_ok=%s repository_ok=%s tag_ok=%s\n' "$registry_ok" "$repository_ok" "$tag_ok"
+              if [ "$registry_ok" = true ] && [ "$repository_ok" = true ] && [ "$tag_ok" = true ]; then rest_ok=true; fi
+            fi
             case "$image_ref" in
               */supabase/postgres:17.12.0.002|supabase/postgres:17.12.0.002) postgres_ok=true; postgres_id="$container_id" ;;
               */supabase/gotrue:v2.198.0|supabase/gotrue:v2.198.0) auth_ok=true ;;
-              ghcr.io/supabase/postgrest:v16.6) rest_ok=true ;;
               */kong:2.8.1|kong:2.8.1) kong_ok=true ;;
             esac
           done
+          if [ "$postgrest_ref_count" -ne 1 ]; then
+            printf 'phase=image_components service=postgrest category=postgrest_reference_count_mismatch count=%s exit_code=1\n' "$postgrest_ref_count"
+            exit 1
+          fi
           printf 'phase=image_tags postgres_ok=%s auth_ok=%s rest_ok=%s kong_ok=%s\n' "$postgres_ok" "$auth_ok" "$rest_ok" "$kong_ok"
           if [ "$postgres_ok" != true ] || [ "$auth_ok" != true ] || [ "$rest_ok" != true ] || [ "$kong_ok" != true ]; then
             printf 'phase=image_tags category=image_tag_mismatch exit_code=1\n'

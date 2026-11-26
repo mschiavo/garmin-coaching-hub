@@ -120,22 +120,22 @@ Run: [45812444163](https://github.com/mschiavo/garmin-coaching-hub/actions/runs/
 
 ### Causa dimostrata
 
-La versione immagine non è cambiata: la CLI v3.4.0 fissa nel [Dockerfile ufficiale](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/shared/services/Dockerfile) l'upstream `postgrest/postgrest:v16.6`. Ma l'action [supabase/setup-cli fissata al commit usato dal workflow](https://github.com/supabase/setup-cli/blob/689adcfb80d947100a1eab127289b97d1fb07b13/src/main.ts) esporta `SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` per questa versione CLI. Il [resolver del registry nella CLI](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/command-internal/docker-registry.ts) riscrive quindi il nome upstream usando il registry e l'ultimo segmento del repository. Il riferimento atteso nel container è così `ghcr.io/supabase/postgrest:v16.6`.
+La versione immagine non è cambiata: la CLI v3.4.0 fissa nel [Dockerfile ufficiale](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/shared/services/Dockerfile) l'upstream `postgrest/postgrest:v16.6`. La prima diagnosi aveva attribuito erroneamente a `setup-cli` l'export GHCR: il suo codice esporta `ghcr.io` solo per versioni CLI `>=1.28.0` e `<2.108.0`; la versione `3.4.0` è fuori da quell'intervallo. Non essendoci un override nel workflow, resta il default `public.ecr.aws` definito nel [resolver ufficiale della CLI](https://github.com/supabase/cli/blob/v3.4.0/apps/cli/src/command-internal/docker-registry.ts). Lo stesso resolver ricava il segmento finale dell'immagine upstream e costruisce il riferimento `public.ecr.aws/supabase/postgrest:v16.6`.
 
-Il pattern precedente richiedeva un percorso con due segmenti `postgrest/postgrest` e non poteva corrispondere al percorso riscritto `supabase/postgrest`. Si tratta quindi di una discrepanza del nome repository, non di un tag PostgREST differente né di un difetto del matcher Bash. Il controllo degli altri tre servizi e la versione CLI restano invariati.
+Il controllo precedente è stato corretto a `ghcr.io/supabase/postgrest:v16.6`, ma ha continuato a fallire nella run successiva. La causa effettiva è il registry atteso: riferimento PostgREST su GHCR non previsto dalla logica `setup-cli` per CLI 3.4.0. La versione `v16.6` e il matcher Bash non sono la causa.
 
 ### Correzione e protezioni
 
-Il controllo PostgREST ora accetta esclusivamente `ghcr.io/supabase/postgrest:v16.6`, riferimento effettivo ricavato dal resolver ufficiale e dalla configurazione dell'action fissata. Non accetta genericamente repository alternativi o versioni diverse. Un test statico di regressione richiede quel riferimento e rifiuta il vecchio pattern upstream. Restano invariati i vincoli dei quattro container running, rete della run, binding solo `127.0.0.1`, identità PostgreSQL, cleanup `always()` e assenza di accessi cloud.
+Il controllo PostgREST viene allineato al riferimento canonico ECR `public.ecr.aws/supabase/postgrest:v16.6` e confronta separatamente registry, repository e tag. La versione resta strettamente fissata. Per evitare ulteriori diagnosi per supposizione, prima del confronto vengono estratti i soli campi `.Config.Image` dei quattro container già identificati; ciascun riferimento viene stampato solo dopo validazione contro un'allowlist sintattica di registry, repository, tag e digest SHA-256. Un riferimento malformato è rifiutato senza stamparne il contenuto. Gli altri controlli container/rete/porte/DB e il cleanup `always()` restano invariati.
 
-La run non è stata rilanciata e il tag effettivo non compare nei log disponibili: il riferimento è ricostruito deterministicamente dalle sorgenti corrispondenti alle versioni fissate, non da una stampa del runtime Docker. Il prossimo gate remoto dovrà confermare il completamento dello startup, rete/binding e test Auth/PostgREST. In questa consegna non sono stati eseguiti push, PR, merge, deploy o accessi a servizi esterni.
+La run `45819381928` ha superato startup e inventario (4/4 container running) ma ha fallito sul confronto PostgREST `ghcr.io`. Non ha registrato il `.Config.Image` reale: il riferimento ECR è dimostrato dall'intera catena ufficiale e dalla configurazione workflow priva di override, ma sarà anche verificato e stampato in forma validata nella prossima run. In questa consegna non sono stati eseguiti push, PR, merge, deploy o accessi a servizi esterni.
 
 ### Verifiche locali della correzione
 
 | Controllo | Esito |
 | --- | --- |
 | Actionlint | Superato |
-| Python `unittest discover -s tests` | 27 superati, incluso il nuovo controllo statico del riferimento esatto |
+| Python `unittest discover -s tests` | 27 superati, incluso controllo della allowlist e rifiuto di riferimenti arbitrari |
 | PostgreSQL sintetico tramite task `Local` | 17 test SQL superati; backup/restore isolato completato, cluster arrestato |
 | Dashboard Training Load | 5 superati |
 | Dashboard Analytics/API | 15 superati |
