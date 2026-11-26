@@ -51,9 +51,11 @@ def dashboard_failure_summary(output: str, returncode: int) -> str:
         fields.append("test=live_local_supabase_dashboard")
     else:
         fields.append("test=unidentified")
-    source = re.search(r"tests[/\\]supabase\.integration\.spec\.ts:(\d+):\d+", safe_output)
-    if source:
-        fields.append(f"source_line={source.group(1)}")
+    # Playwright prints the test declaration before the error's stack frames; use
+    # the last location in this spec so the result identifies the failing call.
+    sources = list(re.finditer(r"tests[/\\]supabase\.integration\.spec\.ts:(\d+):\d+", safe_output))
+    if sources:
+        fields.append(f"source_line={sources[-1].group(1)}")
     matcher = re.search(
         r"\.(toBeVisible|toContainText|toHaveCount|toBeTruthy|toBeGreaterThan)\(",
         safe_output,

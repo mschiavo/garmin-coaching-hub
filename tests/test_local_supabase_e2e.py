@@ -43,12 +43,15 @@ password=synthetic-secret bearer eyJhbGciOiJIUzI1NiJ9.synthetic-signature
         self.assertNotIn("eyJhbGci", summary)
 
         assertion = dashboard_failure_summary(
-            "tests/supabase.integration.spec.ts:42:7 Error: expect(page).toHaveCount() failed\n"
+            "1) [chromium] › tests/supabase.integration.spec.ts:11:1 › live local Supabase "
+            "login, analytics, account switch and logout\n"
+            "Error: expect(page).toHaveCount() failed\n"
+            "at tests/supabase.integration.spec.ts:42:7\n"
             "expected 1, received 0", 1,
         )
         self.assertEqual(
             assertion,
-            "category=assertion_failure test=unidentified source_line=42 "
+            "category=assertion_failure test=live_local_supabase_dashboard source_line=42 "
             "matcher=toHaveCount exit_code=1",
         )
 
