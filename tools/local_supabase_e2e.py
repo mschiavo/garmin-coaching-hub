@@ -54,12 +54,12 @@ def dashboard_failure_summary(output: str, returncode: int) -> str:
             if not isinstance(suite, dict):
                 continue
             for spec in suite.get("specs", ()):
-                if not isinstance(spec, dict):
+                if not isinstance(spec, dict) or spec.get("title") != LIVE_DASHBOARD_TEST:
                     continue
+                test_location = spec
                 for test in spec.get("tests", ()):
-                    if not isinstance(test, dict) or test.get("title") != LIVE_DASHBOARD_TEST:
+                    if not isinstance(test, dict):
                         continue
-                    test_location = spec.get("location")
                     for result in test.get("results", ()):
                         if result.get("status") in ("failed", "timedOut", "interrupted"):
                             test_result = result

@@ -32,9 +32,8 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         output = json.dumps({
             "suites": [{"specs": [{
                 "title": "live local Supabase login, analytics, account switch and logout",
-                "location": {"file": "tests/supabase.integration.spec.ts", "line": 11},
-                "tests": [{"title": "live local Supabase login, analytics, account switch and logout",
-                           "results": [{"status": "timedOut",
+                "file": "supabase.integration.spec.ts", "line": 11, "column": 1,
+                "tests": [{"results": [{"status": "timedOut",
                                         "errorLocation": {"file": "tests/supabase.integration.spec.ts",
                                                           "line": 21, "column": 3},
                                         "error": {"message": "Timeout 5000ms exceeded; "
@@ -56,8 +55,8 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         assertion = dashboard_failure_summary(
             json.dumps({"suites": [{"specs": [{
                 "title": "live local Supabase login, analytics, account switch and logout",
-                "tests": [{"title": "live local Supabase login, analytics, account switch and logout",
-                           "results": [{"status": "failed",
+                "file": "supabase.integration.spec.ts", "line": 11, "column": 1,
+                "tests": [{"results": [{"status": "failed",
                                         "errorLocation": {"file": "tests/supabase.integration.spec.ts",
                                                           "line": 42, "column": 7},
                                         "error": {"message": "expect(page).toHaveCount() failed; "
