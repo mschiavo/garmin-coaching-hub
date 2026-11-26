@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +13,18 @@ from tools.local_supabase_e2e import (
 class LocalSupabaseTargetTests(unittest.TestCase):
     SYSTEM_ID = "7421098365012345678"
     DSN = "host=127.0.0.1 port=54322 dbname=postgres user=postgres password=synthetic"
+
+    def test_harness_starts_as_repository_module(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "tools.local_supabase_e2e", "--help"],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Synthetic end-to-end probes", result.stdout)
 
     def test_accepts_only_exact_loopback_fixture_target(self):
         values = validate_local_database(self.DSN, self.SYSTEM_ID, "postgres")
@@ -112,7 +126,8 @@ class LocalSupabaseTargetTests(unittest.TestCase):
         for line in workflow.splitlines():
             if line.strip().startswith("uses:"):
                 self.assertRegex(line.strip(), r"^uses: [^@]+@[0-9a-f]{40}(?:\s+#.*)?$")
-        self.assertIn("tools/local_supabase_e2e.py", workflow)
+        self.assertIn("python -m tools.local_supabase_e2e", workflow)
+        self.assertNotIn("python tools/local_supabase_e2e.py", workflow)
         self.assertIn("pg_control_system()", workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn('!= "$RUNNER_TEMP/gch-v341-supabase"', workflow)

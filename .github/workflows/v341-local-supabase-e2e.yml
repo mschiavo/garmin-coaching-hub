@@ -269,7 +269,7 @@ jobs:
           GCH_E2E_EXPECTED_SYSTEM_ID="$(docker exec "$GCH_E2E_POSTGRES_CONTAINER_ID" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()')"
           test -n "$GCH_E2E_EXPECTED_SYSTEM_ID"
           export GCH_E2E_EXPECTED_SYSTEM_ID
-          GCH_SUPABASE_DIR="$GCH_SUPABASE_DIR" python tools/local_supabase_e2e.py
+          GCH_SUPABASE_DIR="$GCH_SUPABASE_DIR" python -m tools.local_supabase_e2e
 
       - name: Stop stack and remove synthetic credentials
         if: always()
