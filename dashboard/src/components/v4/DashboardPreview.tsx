@@ -1,10 +1,11 @@
-import { Activity, BarChart3, CalendarDays, Gauge, HeartPulse, LayoutDashboard, Moon, Target } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, Gauge, HeartPulse, LayoutDashboard, Moon, Target, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 import type { ActivityRow, DailyRow, Period } from '../../analytics/dates';
 import type { LoadPoint } from '../../charts';
 import { DataState } from './DataState';
 import { AppShell } from './AppShell';
 import { DashboardHome } from './DashboardHome';
+import { GoalCenterPreview, PerformanceLabPreview, WeeklyProgressPreview } from './AdvancedVisualizations';
 
 const period: Period = { start: '2025-01-06', end: '2025-01-12' };
 const activities: ActivityRow[] = [
@@ -26,7 +27,11 @@ const weeklyLoad: LoadPoint[] = [
 const items = [
   { id: 'home', label: 'Dashboard', icon: LayoutDashboard }, { id: 'planning', label: 'Planning', icon: CalendarDays, preview: true },
   { id: 'performance', label: 'Performance', icon: Gauge, preview: true }, { id: 'recovery', label: 'Recovery', icon: HeartPulse, preview: true },
-  { id: 'goals', label: 'Obiettivi', icon: Target, preview: true }, { id: 'activities', label: 'Attività', icon: Activity },
+  { id: 'goals', label: 'Obiettivi', icon: Target, preview: true },
+  { id: 'goal-center', label: 'Goal Center', icon: Target, preview: true },
+  { id: 'weekly-progress', label: 'Progresso settimanale', icon: BarChart3, preview: true },
+  { id: 'performance-lab', label: 'Performance Lab', icon: TrendingUp, preview: true },
+  { id: 'activities', label: 'Attività', icon: Activity },
   { id: 'load', label: 'Training Load', icon: BarChart3 }, { id: 'sleep', label: 'Sonno', icon: Moon },
 ];
 
@@ -41,7 +46,10 @@ export function DashboardPreview() {
     {active === 'home' ? <DashboardHome activities={activities} daily={daily} weeklyLoad={weeklyLoad} period={period}
       coverageKind="available" coverageMessage="Fixture sintetica completa per il periodo visualizzato." isDayCovered={() => true}
       updatedAt="2025-01-12T18:30:00.000Z" source="Fixture sintetica" goal={{ actual: 36.3, target: 42, unit: 'km', label: 'Volume settimanale', period: 'Obiettivo demo · 6–12 gen' }} demo/>
-      : <section className="v4-preview-placeholder"><DataState kind="empty" title={`${items.find(item => item.id === active)?.label} · anteprima`}>Sezione dimostrativa non collegata a servizi o account. I valori sintetici sono mostrati soltanto nella Home.</DataState><button type="button" onClick={() => setActive('home')}>Torna alla Home</button></section>}
+      : active === 'goal-center' ? <GoalCenterPreview/>
+      : active === 'weekly-progress' ? <WeeklyProgressPreview/>
+      : active === 'performance-lab' ? <PerformanceLabPreview/>
+      : <section className="v4-preview-placeholder"><DataState kind="empty" title={`${items.find(item => item.id === active)?.label} · anteprima`}>Sezione dimostrativa non collegata a servizi o account. Le serie sintetiche sono disponibili nelle sezioni Goal Center, Progresso settimanale e Performance Lab.</DataState><button type="button" onClick={() => setActive('home')}>Torna alla Home</button></section>}
     </div>
   </AppShell>;
 }

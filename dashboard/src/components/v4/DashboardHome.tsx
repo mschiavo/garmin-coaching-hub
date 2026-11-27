@@ -5,7 +5,7 @@ import { color, Plot, type LoadPoint } from '../../charts';
 import { DataState, type DataStateKind } from './DataState';
 import { EvidenceTooltip } from './EvidenceTooltip';
 import { MetricCard, type MetricStatus } from './MetricCard';
-import { ProgressRing } from './ProgressRing';
+import { MultiProgressRing, type RingSeries } from './AdvancedVisualizations';
 
 type Goal = { actual: number; target: number; unit: string; label: string; period: string };
 type Props = {
@@ -114,7 +114,7 @@ export function DashboardHome({ activities, daily, weeklyLoad, period, coverageK
       <section className="v4-dashboard-card v4-week-card" aria-labelledby="v4-week-title">
         <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">ULTIMI 7 GIORNI</span><h2 id="v4-week-title">Settimana registrata</h2></div><CalendarDays size={19} aria-hidden="true"/></header>
         <div className="v4-week-summary"><div className="v4-week-summary__count"><strong>{orderedActivities.filter(row => row.date >= weekStart).length}</strong><span>sedute<br/>registrate</span></div>
-          {goal ? <ProgressRing label={goal.label} actual={goal.actual} target={goal.target} unit={goal.unit} period={goal.period}/> : <DataState kind="empty" title="Target non configurato">Il progresso resta nascosto finché non esiste un obiettivo valido.</DataState>}
+          {goal ? <MultiProgressRing compact size={72} title="Progresso settimanale" series={[{ id: 'weekly-volume', label: goal.label, actual: goal.actual, target: goal.target, unit: goal.unit, color: 'var(--chart-blue)', status: demo ? 'demo' : coverageKind === 'available' ? 'available' : 'partial' } satisfies RingSeries]}/> : <DataState kind="empty" title="Target non configurato">Il progresso resta nascosto finché non esiste un obiettivo valido.</DataState>}
         </div>
         <div className="v4-week-bars" aria-label="Attività e chilometri registrati per giorno">
           {weekDays.map(day => { const km = runVolumeByDate.get(day) ?? 0; const known = isDayCovered(day); const count = orderedActivities.filter(row => row.date === day).length; return <div className={`v4-week-day ${known ? '' : 'v4-week-day--unknown'}`} key={day} title={`${dateText(day)} · ${known ? `${count} sedute · ${fmt(km)} km corsa` : 'copertura non verificata'}`}>
@@ -143,6 +143,19 @@ export function DashboardHome({ activities, daily, weeklyLoad, period, coverageK
           <RecoveryRow label="FC a riposo" value={average(restingHr)} unit="bpm" values={restingHr} stroke="var(--chart-violet)" sampleCount={restingHr.length}/>
           <RecoveryRow label="Stress" value={average(stress)} unit="indice" values={stress} stroke="var(--state-warning)" sampleCount={stress.length}/>
           {bodyBattery.length > 0 && <RecoveryRow label="Body Battery ricaricata" value={average(bodyBattery)} unit="punti" values={bodyBattery} stroke="var(--chart-cyan)" sampleCount={bodyBattery.length}/>}
+        </div>
+        <div className="v4-recovery-baseline" aria-label={demo ? 'Confronto demo con baseline sintetica' : 'Confronto con baseline non disponibile'}>
+          <div className="v4-recovery-baseline__heading"><strong>Andamento rispetto alla baseline</strong><span>{demo ? 'CONFRONTO DEMO SINTETICO' : 'BASELINE NON DISPONIBILE'}</span></div>
+          {demo ? <div className="v4-recovery-baseline__grid">{[
+            { label: 'HRV', value: average(hrv), baseline: 52, unit: 'ms', better: 'higher' },
+            { label: 'Sonno', value: average(sleep), baseline: 7.2, unit: 'h', better: 'higher' },
+            { label: 'FC a riposo', value: average(restingHr), baseline: 51, unit: 'bpm', better: 'lower' },
+            { label: 'Stress', value: average(stress), baseline: 24, unit: 'indice', better: 'lower' },
+          ].map(row => {
+            const delta = row.value == null ? null : row.value - row.baseline;
+            const improved = delta == null ? null : row.better === 'higher' ? delta >= 0 : delta <= 0;
+            return <div key={row.label} className={improved == null ? '' : improved ? 'is-positive' : 'is-caution'}><span>{row.label}</span><strong>{row.value == null ? '—' : `${fmt(row.value)} ${row.unit}`}</strong><small>{delta == null ? 'serie assente' : `${delta >= 0 ? '+' : '−'}${fmt(Math.abs(delta))} ${row.unit} dalla baseline demo`}</small></div>;
+          })}</div> : <DataState kind="empty" title="Confronto non disponibile">La dashboard non riceve una baseline storica omogenea per questo periodo. Il confronto non viene stimato.</DataState>}
         </div>
       </section>
     </div>

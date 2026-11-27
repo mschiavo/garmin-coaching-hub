@@ -84,7 +84,7 @@ test('preview sintetica: mobile, navigazione touch e nessun overflow globale', a
   await assertOfflineAndComplete(page);
   await page.screenshot({ path: path.join(output, 'home-390x844.png'), fullPage: false, animations: 'disabled' });
   await page.screenshot({ path: path.join(output, 'home-390x844-full.png'), fullPage: true, animations: 'disabled' });
-  await page.getByRole('button', { name: 'Performance' }).click();
+  await page.getByRole('button', { name: 'Performance', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Performance · anteprima' })).toBeVisible();
   await page.getByRole('button', { name: 'Torna alla Home' }).click();
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
