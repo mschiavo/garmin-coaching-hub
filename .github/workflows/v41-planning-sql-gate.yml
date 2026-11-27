@@ -1,0 +1,135 @@
+name: V4.1 Planning SQL Gate B
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v41-planning-sql-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  planning-sql-gate:
+    name: PostgreSQL 17.6 · migration, ACL, rollback and restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      POSTGRES_PASSWORD: v41-synthetic-only
+      V34_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=v41-synthetic-only
+      PYTHONUNBUFFERED: '1'
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: v41-synthetic-only
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up fixed Python runtime
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12.10'
+
+      - name: Check workflow isolation and required gates
+        id: workflow-guard
+        run: python tests/test_v41_sql_workflow.py
+
+      - name: Install pinned PostgreSQL test driver
+        id: install
+        run: python -m pip install --disable-pip-version-check --no-input 'psycopg[binary]==3.2.6'
+
+      - name: Verify ephemeral target identity and create empty databases
+        id: target
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          test -n "$POSTGRES_CONTAINER"
+          image="$(docker inspect --format '{{.Config.Image}}' "$POSTGRES_CONTAINER")"
+          test "$image" = 'postgres:17.6'
+          system_id="$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()')"
+          [[ "$system_id" =~ ^[1-9][0-9]{0,19}$ ]]
+          test "${#system_id}" -le 20
+          python -c 'import sys; raise SystemExit(int(sys.argv[1]) > 18446744073709551615)' "$system_id"
+          printf 'GCH_TEST_POSTGRES_SYSTEM_ID=%s\n' "$system_id" >> "$GITHUB_ENV"
+          for db in gch_v41_planning_fresh gch_v41_planning_upgrade gch_v41_planning_atomic gch_v41_planning_restore; do
+            exists="$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -Atqc "SELECT 1 FROM pg_catalog.pg_database WHERE datname='$db'")"
+            test -z "$exists"
+            docker exec "$POSTGRES_CONTAINER" createdb -U postgres "$db"
+          done
+          printf 'Target check: PostgreSQL image fixed, cluster identity captured, four named databases created empty.\n'
+
+      - name: Apply baseline and test migration, ACL, RLS, constraints and rollback
+        id: migration-tests
+        env:
+          PYTHONPATH: tests/sql
+        run: python -m unittest v41_planning_contract.PlanningSchema -v
+
+      - name: Back up, restore and verify synthetic schema and data
+        id: restore-tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          PYTHONPATH: tests/sql
+        run: |
+          set -euo pipefail
+          test "$(docker inspect --format '{{.Config.Image}}' "$POSTGRES_CONTAINER")" = 'postgres:17.6'
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U postgres -d gch_v41_planning_upgrade -Fc -f /tmp/gch-v41-planning.dump
+          docker exec "$POSTGRES_CONTAINER" pg_restore --exit-on-error --single-transaction -U postgres -d gch_v41_planning_restore /tmp/gch-v41-planning.dump
+          python -m unittest v41_planning_contract.PlanningRestore -v
+
+      - name: Clean synthetic databases and backup
+        id: cleanup
+        if: always()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$POSTGRES_CONTAINER" ] && docker inspect "$POSTGRES_CONTAINER" >/dev/null 2>&1; then
+            for db in gch_v41_planning_fresh gch_v41_planning_upgrade gch_v41_planning_atomic gch_v41_planning_restore; do
+              docker exec "$POSTGRES_CONTAINER" dropdb -U postgres --if-exists "$db"
+            done
+            docker exec "$POSTGRES_CONTAINER" rm -f /tmp/gch-v41-planning.dump
+            echo 'Synthetic database and backup cleanup completed.'
+          else
+            echo 'Ephemeral PostgreSQL service already unavailable; GitHub runner teardown removes it.'
+          fi
+
+      - name: Publish gate summary
+        if: always()
+        env:
+          WORKFLOW_GUARD: ${{ steps.workflow-guard.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TARGET: ${{ steps.target.outcome }}
+          MIGRATION_TESTS: ${{ steps.migration-tests.outcome }}
+          RESTORE_TESTS: ${{ steps.restore-tests.outcome }}
+          CLEANUP: ${{ steps.cleanup.outcome }}
+        run: |
+          {
+            echo '# V4.1 SQL Gate B'
+            echo "Commit testato: ${GITHUB_SHA}"
+            echo 'Runtime: ubuntu-24.04, Python 3.12.10, PostgreSQL 17.6; database usa-e-getta.'
+            echo 'Nessun secret, progetto Supabase, servizio Garmin o NAS configurato.'
+            echo
+            echo '| Gate | Esito step |'
+            echo '|---|---|'
+            echo "| Isolamento workflow | $WORKFLOW_GUARD |"
+            echo "| Driver fissato | $INSTALL |"
+            echo "| Identità loopback/cluster e database vuoti | $TARGET |"
+            echo "| Fresh, upgrade, ACL/RLS, vincoli e rollback atomico | $MIGRATION_TESTS |"
+            echo "| pg_dump, pg_restore, dati e vincoli ripristinati | $RESTORE_TESTS |"
+            echo "| Cleanup esplicito (servizio effimero comunque eliminato dal runner) | $CLEANUP |"
+          } >> "$GITHUB_STEP_SUMMARY"

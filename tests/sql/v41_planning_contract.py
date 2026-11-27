@@ -1,23 +1,51 @@
 """Prepared PostgreSQL contract tests for migration 0036.
 
-Run only on three empty, disposable databases on an isolated loopback PostgreSQL
+Run only on four empty, disposable databases on an isolated loopback PostgreSQL
 cluster. This module is intentionally not auto-discovered by the V3 SQL suite.
 """
 from pathlib import Path
 import os
+import re
 import unittest
 
 import psycopg
 from psycopg import errors
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from test_intelligence import ALLOWED, ROOT, apply, connect
+ROOT = Path(__file__).resolve().parents[2]
+ALLOWED = "00000000-0000-0000-0000-000000000001"
 
 
 FRESH_DB = "gch_v41_planning_fresh"
 UPGRADE_DB = "gch_v41_planning_upgrade"
 ATOMIC_DB = "gch_v41_planning_atomic"
+RESTORE_DB = "gch_v41_planning_restore"
 MIGRATION = ROOT / "supabase/migrations/0036_v41_planning.sql"
 SYNTHETIC_ACTIVITY = 9007199254800123
+
+
+def connect(database: str):
+    """Fail closed to loopback and the explicitly supplied ephemeral cluster ID."""
+    options = conninfo_to_dict(os.environ["V34_TEST_DSN"])
+    expected = os.environ.get("GCH_TEST_POSTGRES_SYSTEM_ID", "")
+    if (options.get("host") != "127.0.0.1" or options.get("hostaddr", "127.0.0.1") != "127.0.0.1"
+            or "service" in options or not re.fullmatch(r"[1-9][0-9]{0,19}", expected)
+            or int(expected) > 2**64 - 1):
+        raise ValueError("V4.1 SQL gate requires loopback and a verified synthetic cluster")
+    conn = psycopg.connect(make_conninfo(**(options | {"dbname": database, "hostaddr": "127.0.0.1"})), autocommit=True)
+    try:
+        actual = conn.execute("SELECT system_identifier::text FROM pg_catalog.pg_control_system()").fetchone()[0]
+        if actual != expected:
+            raise ValueError("PostgreSQL cluster identity does not match the ephemeral runner")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
+
+
+def apply(conn, relative: str | Path):
+    source = relative if isinstance(relative, Path) else ROOT / relative
+    conn.execute(source.read_text(encoding="utf-8"))
 
 
 class PlanningSchema(unittest.TestCase):
@@ -172,6 +200,23 @@ class PlanningSchema(unittest.TestCase):
             after = conn.execute("SELECT activity_date, raw_data FROM coaching.garmin_activities WHERE activity_id=%s",
                                  (SYNTHETIC_ACTIVITY,)).fetchone()
             self.assertEqual(after, before)
+
+
+class PlanningRestore(unittest.TestCase):
+    """Run only after the workflow restores the synthetic custom-format dump."""
+    def test_restored_data_constraints_and_acl(self):
+        with connect(RESTORE_DB) as conn:
+            self.assertEqual(conn.execute("SELECT raw_data->>'synthetic' FROM coaching.garmin_activities WHERE activity_id=%s",
+                                          (SYNTHETIC_ACTIVITY,)).fetchone()[0], "true")
+            self.assertGreater(conn.execute("SELECT count(*) FROM planning_private.plan_cycles").fetchone()[0], 0)
+            self.assertTrue(conn.execute("""SELECT c.relrowsecurity AND c.relforcerowsecurity
+                FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='planning_private' AND c.relname='training_goals'""").fetchone()[0])
+            self.assertFalse(conn.execute("SELECT has_schema_privilege('authenticated','planning_private','USAGE')").fetchone()[0])
+            with self.assertRaises(errors.CheckViolation):
+                conn.execute("""INSERT INTO planning_private.training_goals
+                    (scope,metric,target,unit,direction,start_date,end_date,timezone)
+                    VALUES ('week','distance',100,'s','at_least',DATE '2026-01-05',DATE '2026-01-11','Europe/Rome')""")
 
 
 if __name__ == "__main__":
