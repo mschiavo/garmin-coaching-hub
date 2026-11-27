@@ -1,6 +1,19 @@
 name: V4.1 Planning SQL Gate B
 
 on:
+  push:
+    branches:
+      - feature/v4-visual-foundation
+    paths:
+      - .github/workflows/v41-planning-sql-gate.yml
+      - supabase/bootstrap.sql
+      - supabase/dashboard.sql
+      - supabase/migrations/0034_data_intelligence.sql
+      - supabase/migrations/0035_staging_reliability.sql
+      - supabase/migrations/0036_v41_planning.sql
+      - tests/sql/auth_stub.sql
+      - tests/sql/v41_planning_contract.py
+      - tests/test_v41_sql_workflow.py
   workflow_dispatch:
 
 permissions:
@@ -8,7 +21,7 @@ permissions:
 
 concurrency:
   group: v41-planning-sql-gate-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   planning-sql-gate:
@@ -37,6 +50,7 @@ jobs:
       - name: Checkout tested commit
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up fixed Python runtime

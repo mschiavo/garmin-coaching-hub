@@ -9,7 +9,7 @@ import re
 import unittest
 
 import psycopg
-from psycopg import errors
+from psycopg import errors, sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -205,16 +205,83 @@ class PlanningSchema(unittest.TestCase):
 class PlanningRestore(unittest.TestCase):
     """Run only after the workflow restores the synthetic custom-format dump."""
     def test_restored_data_constraints_and_acl(self):
-        with connect(RESTORE_DB) as conn:
-            self.assertEqual(conn.execute("SELECT raw_data->>'synthetic' FROM coaching.garmin_activities WHERE activity_id=%s",
-                                          (SYNTHETIC_ACTIVITY,)).fetchone()[0], "true")
-            self.assertGreater(conn.execute("SELECT count(*) FROM planning_private.plan_cycles").fetchone()[0], 0)
-            self.assertTrue(conn.execute("""SELECT c.relrowsecurity AND c.relforcerowsecurity
-                FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-                WHERE n.nspname='planning_private' AND c.relname='training_goals'""").fetchone()[0])
-            self.assertFalse(conn.execute("SELECT has_schema_privilege('authenticated','planning_private','USAGE')").fetchone()[0])
+        with connect(UPGRADE_DB) as source, connect(RESTORE_DB) as restored:
+            source_tables = {row[0] for row in source.execute("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema='planning_private' AND table_type='BASE TABLE'
+            """).fetchall()}
+            restored_tables = {row[0] for row in restored.execute("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema='planning_private' AND table_type='BASE TABLE'
+            """).fetchall()}
+            self.assertEqual(restored_tables, source_tables)
+            self.assertEqual(restored_tables, {"plan_cycles", "plan_weeks", "planned_sessions", "training_goals",
+                                               "goal_milestones", "session_activity_links", "plan_change_events"})
+
+            def constraints(conn):
+                return conn.execute("""
+                    SELECT c.conname, c.contype, pg_catalog.pg_get_constraintdef(c.oid, true), c.convalidated
+                    FROM pg_catalog.pg_constraint c
+                    JOIN pg_catalog.pg_namespace n ON n.oid=c.connamespace
+                    WHERE n.nspname='planning_private' ORDER BY c.conname
+                """).fetchall()
+
+            self.assertEqual(constraints(restored), constraints(source))
+
+            def indexes(conn):
+                return conn.execute("""
+                    SELECT indexname, indexdef FROM pg_catalog.pg_indexes
+                    WHERE schemaname='planning_private' ORDER BY indexname
+                """).fetchall()
+
+            self.assertEqual(indexes(restored), indexes(source))
+
+            def triggers(conn):
+                return conn.execute("""
+                    SELECT c.relname, t.tgname, pg_catalog.pg_get_triggerdef(t.oid, true), t.tgenabled
+                    FROM pg_catalog.pg_trigger t
+                    JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+                    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname='planning_private' AND NOT t.tgisinternal
+                    ORDER BY c.relname, t.tgname
+                """).fetchall()
+
+            self.assertEqual(triggers(restored), triggers(source))
+
+            def row_counts(conn):
+                return {
+                    table: conn.execute(
+                        sql.SQL("SELECT count(*) FROM {}.{}").format(
+                            sql.Identifier("planning_private"), sql.Identifier(table),
+                        )
+                    ).fetchone()[0]
+                    for table in sorted(restored_tables)
+                }
+
+            self.assertEqual(row_counts(restored), row_counts(source))
+            self.assertGreater(row_counts(restored)["plan_cycles"], 0)
+            source_activity = source.execute(
+                "SELECT activity_date, raw_data FROM coaching.garmin_activities WHERE activity_id=%s",
+                (SYNTHETIC_ACTIVITY,),
+            ).fetchone()
+            restored_activity = restored.execute(
+                "SELECT activity_date, raw_data FROM coaching.garmin_activities WHERE activity_id=%s",
+                (SYNTHETIC_ACTIVITY,),
+            ).fetchone()
+            self.assertEqual(restored_activity, source_activity)
+
+            secured = restored.execute("""
+                SELECT count(*) FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='planning_private' AND c.relkind='r'
+                  AND c.relrowsecurity AND c.relforcerowsecurity
+            """).fetchone()[0]
+            self.assertEqual(secured, 7)
+            self.assertFalse(restored.execute(
+                "SELECT has_schema_privilege('authenticated','planning_private','USAGE')"
+            ).fetchone()[0])
             with self.assertRaises(errors.CheckViolation):
-                conn.execute("""INSERT INTO planning_private.training_goals
+                restored.execute("""INSERT INTO planning_private.training_goals
                     (scope,metric,target,unit,direction,start_date,end_date,timezone)
                     VALUES ('week','distance',100,'s','at_least',DATE '2026-01-05',DATE '2026-01-11','Europe/Rome')""")
 

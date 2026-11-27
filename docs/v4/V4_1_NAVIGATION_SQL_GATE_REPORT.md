@@ -48,7 +48,7 @@ File aggiunti/modificati:
 - `tests/test_v41_sql_workflow.py`
 - `tests/sql/v41_planning_contract.py`
 
-Il workflow è `workflow_dispatch` esclusivamente, ha permesso `contents: read`, checkout senza credenziali persistenti e runner GitHub-hosted effimero `ubuntu-24.04`. Il servizio è PostgreSQL `17.6`, la porta è esposta solo su `127.0.0.1`, Python è `3.12.10` e il driver è `psycopg[binary]==3.2.6`. È usata solo una password sintetica inline; non sono riferiti secrets, Supabase cloud, Garmin, NAS o endpoint esterni.
+Il workflow è attivabile con `push` limitato al branch `feature/v4-visual-foundation` e ai file che alimentano il gate, oppure con `workflow_dispatch`. Oltre al workflow, migration e test 0036, i filtri includono solo i bootstrap, le migrazioni 0034/0035 e gli stub/test statici eseguiti dal job: modificarli può alterare il database sintetico o i controlli del gate. Ha permesso `contents: read`, checkout dello SHA evento senza credenziali persistenti e runner GitHub-hosted effimero `ubuntu-24.04`. Il servizio è PostgreSQL `17.6`, la porta è esposta solo su `127.0.0.1`, Python è `3.12.10` e il driver è `psycopg[binary]==3.2.6`. La concorrenza non annulla run esistenti. È usata solo una password sintetica inline; non sono riferiti secrets, Supabase cloud, Garmin, NAS o endpoint esterni.
 
 Prima di creare i database, lo step identifica il container e rifiuta un'immagine diversa da `postgres:17.6`; acquisisce il `system_identifier` PostgreSQL, convalida il range intero e lo passa al test. Il client Python richiede host/hostaddr loopback, rifiuta connessioni service-based e verifica l'identificatore del cluster a ogni connessione. I quattro database con nomi dedicati devono essere assenti prima della creazione; il test rifiuta gli schemi non vuoti.
 
@@ -62,11 +62,11 @@ La sequenza prevista è:
 6. `pg_dump -Fc`, `pg_restore --exit-on-error --single-transaction` su un quarto database e controlli post-restore su dati, vincoli, RLS e ACL;
 7. cleanup `if: always()` dei quattro database sintetici e del dump; il runner effimero elimina comunque il servizio.
 
-Il riepilogo Actions espone SHA testato ed esito per ciascuno step. Un gate obbligatorio fallito interrompe gli step dipendenti e rende la run non-success; `always()` è limitato a cleanup e riepilogo. Il test statico verifica anche che il SHA venga stampato senza command substitution Bash.
+Il test post-restore confronta il set di tabelle, definizioni e validità dei vincoli, indici, trigger, conteggi di tutte le tabelle Planning e la riga Garmin sintetica tra origine e ripristino; prova inoltre un vincolo dopo il restore. Il riepilogo Actions espone SHA testato ed esito per ciascuno step. Un gate obbligatorio fallito interrompe gli step dipendenti e rende la run non-success; `always()` è limitato a cleanup e riepilogo. Il test statico verifica anche che il SHA venga stampato senza command substitution Bash.
 
 ### Attivazione futura
 
-Il file è solo locale. Non è stata avviata alcuna run. Prima di usare `workflow_dispatch`, il workflow deve essere presente sul branch predefinito affinché GitHub lo registri e lo renda selezionabile; ciò richiede una futura pubblicazione/integrazione autorizzata, non compresa in questa sessione. Dopo tale prerequisito, selezionare **V4.1 Planning SQL Gate B** in Actions indicando `feature/v4-visual-foundation`, oppure usare:
+Il file è solo locale. Non è stata avviata alcuna run. Il trigger push ristretto partirà quando un commit che modifica uno dei percorsi espliciti del gate sarà pubblicato sul branch V4. Per `workflow_dispatch`, il workflow deve essere prima presente sul branch predefinito affinché GitHub lo registri e lo renda selezionabile; ciò richiede una futura pubblicazione/integrazione autorizzata, non compresa in questa sessione. Dopo tale prerequisito, selezionare **V4.1 Planning SQL Gate B** in Actions indicando `feature/v4-visual-foundation`, oppure usare:
 
 ```powershell
 gh workflow run v41-planning-sql-gate.yml `
@@ -86,7 +86,7 @@ La run andrà considerata superata solo se il risultato complessivo è `success`
 | Playwright suite dashboard completa | PASS — 51 passati, 5 skip espliciti tra progetti desktop/mobile, 0 falliti (56 totali) |
 | Test Auth/cambio account e richieste tardive | PASS — inclusi nella suite Playwright completa |
 | Preview offline e assenza di chiamate esterne | PASS — test di preview esistenti nella suite completa |
-| `tests/test_v41_sql_workflow.py` | PASS — 3/3 guard statici |
+| `tests/test_v41_sql_workflow.py` | PASS — 5/5 guard statici |
 | `py_compile` test SQL e guard workflow | PASS |
 | `npm audit --audit-level=moderate --offline` | PASS — 0 vulnerabilità |
 | `git diff --check` | PASS |
