@@ -8,6 +8,8 @@
 
 - HEAD all'avvio: `10f39b19042fe7afd0e04bf252043f78fed1a580` (stato pulito).
 - Il checkpoint A era già stato consolidato nel commit locale `a4e131edf39a5f7e20b5a1aeccd2727705c8f1bc` (`feat(v4.1): add goal math contracts`).
+- Migration/test B preparatori: commit locale `3b69c71a62d8e8c7702aa24b15a7b7a56f813a54` (`feat(v4.1): prepare planning schema checkpoint`).
+- Il report operativo è aggiornato nel commit successivo a quello dello schema; HEAD finale è quello indicato nella consegna.
 - Nessun push, merge, deploy, accesso cloud o modifica ai worktree V3 eseguiti.
 - Commit di questa consegna: da riportare dopo la creazione del commit locale.
 
@@ -85,9 +87,11 @@ I placeholder vanno sostituiti solo con parametri temporanei del cluster effimer
 | `npm run build` | PASS, TypeScript + Vite |
 | `python -m py_compile tests/sql/v41_planning_contract.py` | PASS |
 | `git diff --check` | PASS |
+| `npm audit --audit-level=moderate --offline` | PASS, 0 vulnerabilità nel lockfile locale |
 | PostgreSQL / migration / ACL / RLS / rollback / backup-restore live | NON ESEGUITI: nessun cluster e nessun client disponibili |
 | Python SQL contract test | NON ESEGUITO: oltre al database assente, `psycopg` non è installato nell'interprete disponibile |
 | Playwright/Auth live | NON ESEGUITI: checkpoint C/D bloccati; non sono state introdotte UI/API live |
+| Gitleaks / actionlint | NON ESEGUITI: eseguibili non presenti nel PATH |
 
 I primi test Node sono stati tentati con il Node di sistema 20.10.0 e non sono partiti perché il progetto richiede Node >=22 e importa TypeScript direttamente. Sono stati rilanciati e superati con Node 22.23.5 da npm cache, senza modificare manifest o lockfile.
 
