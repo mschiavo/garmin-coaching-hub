@@ -104,7 +104,27 @@ async function signIn(page: Page) {
   await page.getByLabel('Email').fill('runner@example.invalid');
   await page.getByLabel('Password').fill('synthetic-password');
   await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
-  await page.getByRole('button', { name: 'Qualità dei dati' }).click();
+  await navigateTo(page, 'quality');
+}
+
+async function navigateTo(page: Page, id: string) {
+  const desktopItem = page.locator(`.v4-sidebar [data-nav-id="${id}"]`);
+  if (await desktopItem.isVisible().catch(() => false)) {
+    await desktopItem.click();
+    return;
+  }
+  const mobileItem = page.locator(`.v4-bottom-navigation [data-nav-id="${id}"]`);
+  if (await mobileItem.isVisible().catch(() => false)) {
+    await mobileItem.click();
+    return;
+  }
+  const desktopMore = page.locator('.v4-sidebar .v4-more-trigger');
+  const more = await desktopMore.isVisible().catch(() => false)
+    ? desktopMore
+    : page.locator('.v4-bottom-navigation .v4-mobile-more');
+  if (await more.getAttribute('aria-expanded') !== 'true') await more.click();
+  if (await desktopItem.isVisible().catch(() => false)) await desktopItem.click();
+  else await mobileItem.click();
 }
 
 test('V2 paginates past 2000, reconciles coverage and exports a local repair plan', async ({ page, isMobile }) => {
@@ -195,7 +215,7 @@ test('Auth response and event complete before the dashboard session is rendered'
   await expect(page.getByRole('heading', { name: /La tua performance/ })).toHaveCount(0);
   resumeAuth();
   await expect(page.getByRole('heading', { name: /La tua performance/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Qualità dei dati' }).click();
+  await navigateTo(page, 'quality');
   await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
   expect(state.unexpected).toEqual([]);
 });
@@ -246,16 +266,16 @@ test('V4 Planning, Goal Center and Performance previews are explicit and add no 
   await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
   const pagesBefore = state.pages;
 
-  await page.getByRole('button', { name: 'Goal Center · Anteprima V4' }).click();
+  await navigateTo(page, 'goals-preview');
   await expect(page.getByRole('heading', { name: 'Goal Center · anteprima V4', exact: true })).toBeVisible();
   await expect(page.getByText('Dati dimostrativi · esempio 28/40 km')).toBeVisible();
   await expect(page.getByRole('img', { name: /28 su 40 km, 70 percento/ })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Planning · Anteprima V4' }).click();
+  await navigateTo(page, 'planning-preview');
   await expect(page.getByRole('heading', { name: 'Planning · anteprima V4', exact: true })).toBeVisible();
   await expect(page.getByText(/Nessuna sessione è stata creata o salvata/)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Performance Lab · Anteprima V4' }).click();
+  await navigateTo(page, 'performance-preview');
   await expect(page.getByRole('heading', { name: 'Performance Lab · anteprima V4', exact: true })).toBeVisible();
   await expect(page.getByText(/VO₂max Garmin non è esposto con unità verificate/)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'VO₂max Garmin' })).toBeVisible();
@@ -271,7 +291,9 @@ test('V4 dashboard shell fits mobile and tablet widths without global horizontal
   for (const width of [360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-    await expect(page.getByRole('navigation', { name: 'Navigazione principale' })).toBeVisible();
+    await expect(page.getByRole('navigation', {
+      name: width <= 650 ? 'Navigazione mobile' : 'Navigazione principale',
+    })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Attiva tema light' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Disconnetti' })).toBeVisible();
   }
@@ -320,7 +342,7 @@ test('conflict remains visible after retry and a second account never reads the 
   await page.getByLabel('Email').fill('second@example.invalid');
   await page.getByLabel('Password').fill('synthetic-password');
   await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
-  await page.getByRole('button', { name: 'Qualità dei dati' }).click();
+  await navigateTo(page, 'quality');
   await expect(page.getByText(/Attività 0\/0/)).toBeVisible();
   resume();
   await expect(page.getByText(/Attività 2501\/2501/)).toHaveCount(0);

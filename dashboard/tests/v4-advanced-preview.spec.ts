@@ -3,6 +3,35 @@ import path from 'node:path';
 
 const output = path.join(process.cwd(), 'test-results', 'v4-advanced-preview');
 
+async function navigatePreview(page: import('@playwright/test').Page, id: string) {
+  const desktopItem = page.locator(`.v4-sidebar [data-nav-id="${id}"]`);
+  const mobileItem = page.locator(`.v4-bottom-navigation [data-nav-id="${id}"]`);
+  const mobileSecondaryItem = page.locator(`.v4-mobile-secondary-menu [data-nav-id="${id}"]`);
+  if (await desktopItem.isVisible().catch(() => false)) {
+    await desktopItem.click();
+    await expect(desktopItem).toHaveAttribute('aria-current', 'page');
+    return;
+  }
+  if (await mobileItem.isVisible().catch(() => false)) {
+    await mobileItem.click();
+    await expect(mobileItem).toHaveAttribute('aria-current', 'page');
+    return;
+  }
+  const desktopMore = page.locator('.v4-sidebar .v4-more-trigger');
+  const more = await desktopMore.isVisible().catch(() => false)
+    ? desktopMore
+    : page.locator('.v4-bottom-navigation .v4-mobile-more');
+  if (await more.getAttribute('aria-expanded') !== 'true') await more.click();
+  if (await desktopItem.isVisible().catch(() => false)) {
+    await desktopItem.click();
+    await expect(desktopItem).toHaveAttribute('aria-current', 'page');
+  } else {
+    await mobileSecondaryItem.click();
+    await expect(page.locator('.v4-bottom-navigation .v4-mobile-more')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('dialog', { name: 'Altre sezioni' })).toHaveCount(0);
+  }
+}
+
 test('preview offline: Home, Goal Center, Performance Lab e progresso settimanale completi', async ({ page, isMobile }) => {
   const externalRequests: string[] = [];
   page.on('request', request => {
@@ -19,7 +48,7 @@ test('preview offline: Home, Goal Center, Performance Lab e progresso settimanal
   await page.waitForTimeout(1800);
   await page.screenshot({ path: path.join(output, `home-${viewport.width}x${viewport.height}.png`), fullPage: true, animations: 'disabled' });
 
-  await page.getByRole('button', { name: 'Goal Center' }).click();
+  await navigatePreview(page, 'goal-center');
   await expect(page.getByRole('heading', { name: 'Avanzamento dei tuoi obiettivi' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Profilo attuale e obiettivo' })).toBeVisible();
   await expect(page.getByText(/dati sintetici/i).first()).toBeVisible();
@@ -29,7 +58,7 @@ test('preview offline: Home, Goal Center, Performance Lab e progresso settimanal
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(output, `goal-center-${viewport.width}x${viewport.height}.png`), fullPage: true, animations: 'disabled' });
 
-  await page.getByRole('button', { name: 'Performance Lab' }).click();
+  await navigatePreview(page, 'performance-lab');
   await expect(page.getByRole('heading', { name: 'Andamento VO₂max e VDOT' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Ritmo e frequenza cardiaca' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Zone di intensità' })).toBeVisible();
@@ -37,7 +66,7 @@ test('preview offline: Home, Goal Center, Performance Lab e progresso settimanal
   await page.waitForTimeout(1800);
   await page.screenshot({ path: path.join(output, `performance-lab-${viewport.width}x${viewport.height}.png`), fullPage: true, animations: 'disabled' });
 
-  await page.getByRole('button', { name: 'Progresso settimanale' }).click();
+  await navigatePreview(page, 'weekly-progress');
   await expect(page.getByRole('heading', { name: 'Target e attività osservate' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Andamento cumulativo' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Previsto vs eseguito' })).toBeVisible();
@@ -54,7 +83,7 @@ test('preview offline: Home, Goal Center, Performance Lab e progresso settimanal
     ] as const;
     await page.locator('html').evaluate(element => element.setAttribute('data-theme', 'light'));
     for (const [section, heading, file] of views) {
-      await page.getByRole('button', { name: section }).click();
+      await navigatePreview(page, file === 'home' ? 'home' : file);
       await expect(page.getByRole('heading', { name: heading })).toBeVisible();
       await page.screenshot({ path: path.join(output, `${file}-light-1440x900.png`), fullPage: true, animations: 'disabled' });
     }
@@ -62,7 +91,7 @@ test('preview offline: Home, Goal Center, Performance Lab e progresso settimanal
     await page.locator('html').evaluate(element => element.setAttribute('data-theme', 'dark'));
     await page.evaluate(() => { document.documentElement.style.zoom = '200%'; });
     for (const [section, heading, file] of views) {
-      await page.getByRole('button', { name: section }).click();
+      await navigatePreview(page, file === 'home' ? 'home' : file);
       await expect(page.getByRole('heading', { name: heading })).toBeVisible();
       const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
       expect(dimensions.scroll, `overflow at 200% in ${section}: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.width);
@@ -78,10 +107,10 @@ test('tipografia informativa V4 almeno 12px e testo secondario WCAG AA in entram
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/tests/v4-dashboard-preview.html');
   const screens = [
-    ['Dashboard', 'Dashboard'],
-    ['Goal Center', 'Avanzamento dei tuoi obiettivi'],
-    ['Performance Lab', 'Andamento VO₂max e VDOT'],
-    ['Progresso settimanale', 'Target e attività osservate'],
+    ['home', 'Dashboard', 'Dashboard'],
+    ['goal-center', 'Goal Center', 'Avanzamento dei tuoi obiettivi'],
+    ['performance-lab', 'Performance Lab', 'Andamento VO₂max e VDOT'],
+    ['weekly-progress', 'Progresso settimanale', 'Target e attività osservate'],
   ] as const;
   const minimumFontSelectors = [
     '.v4-card-kicker', '.v4-source-pill', '.v4-demo-label', '.v4-data-state__label', '.v4-data-state__message',
@@ -97,8 +126,8 @@ test('tipografia informativa V4 almeno 12px e testo secondario WCAG AA in entram
     '.v4-recovery-baseline__grid small', '.v4-volume-table summary',
   ];
 
-  for (const [section, heading] of screens) {
-    if (section !== 'Home') await page.getByRole('button', { name: section }).click();
+  for (const [id, section, heading] of screens) {
+    await navigatePreview(page, id);
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
     const undersized = await page.evaluate(selectors => selectors.flatMap(selector =>
       [...document.querySelectorAll<HTMLElement>(selector)].filter(element => {
@@ -147,16 +176,16 @@ test('sezioni avanzate: radar e grafici restano leggibili su tablet e mobile sen
   await page.goto('/tests/v4-dashboard-preview.html');
   for (const viewport of [{ width: 768, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
-    for (const [section, heading] of [
-      ['Goal Center', 'Avanzamento dei tuoi obiettivi'],
-      ['Performance Lab', 'Andamento VO₂max e VDOT'],
-      ['Progresso settimanale', 'Target e attività osservate'],
+    for (const [id, heading] of [
+      ['goal-center', 'Avanzamento dei tuoi obiettivi'],
+      ['performance-lab', 'Andamento VO₂max e VDOT'],
+      ['weekly-progress', 'Target e attività osservate'],
     ]) {
-      await page.getByRole('button', { name: section }).click();
+      await navigatePreview(page, id);
       await expect(page.getByRole('heading', { name: heading })).toBeVisible();
       const size = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
-      expect(size.content, `overflow ${section}: ${JSON.stringify(size)}`).toBeLessThanOrEqual(size.viewport);
-      if (viewport.width === 390) await page.screenshot({ path: path.join(output, `${section.toLowerCase().replaceAll(' ', '-')}-390x844.png`), fullPage: true, animations: 'disabled' });
+      expect(size.content, `overflow ${heading}: ${JSON.stringify(size)}`).toBeLessThanOrEqual(size.viewport);
+      if (viewport.width === 390) await page.screenshot({ path: path.join(output, `${heading.toLowerCase().replaceAll(' ', '-')}-390x844.png`), fullPage: true, animations: 'disabled' });
     }
   }
 });

@@ -1,5 +1,19 @@
 import { expect, test } from '@playwright/test';
 
+async function navigateTo(page: import('@playwright/test').Page, id: string) {
+  const desktopItem = page.locator(`.v4-sidebar [data-nav-id="${id}"]`);
+  const mobileItem = page.locator(`.v4-bottom-navigation [data-nav-id="${id}"]`);
+  if (await desktopItem.isVisible().catch(() => false)) return desktopItem.click();
+  if (await mobileItem.isVisible().catch(() => false)) return mobileItem.click();
+  const desktopMore = page.locator('.v4-sidebar .v4-more-trigger');
+  const more = await desktopMore.isVisible().catch(() => false)
+    ? desktopMore
+    : page.locator('.v4-bottom-navigation .v4-mobile-more');
+  if (await more.getAttribute('aria-expanded') !== 'true') await more.click();
+  if (await desktopItem.isVisible().catch(() => false)) await desktopItem.click();
+  else await mobileItem.click();
+}
+
 const fixture = {
   activities: [
     { id: 1, date: '2024-01-10', name: 'Corsa storica sintetica', type: 'running', distance_m: 5000, duration_s: 1800, average_hr: 145 },
@@ -46,7 +60,7 @@ test('analytics navigation, charts, report export and empty state use only synth
   await page.getByLabel('Email').fill('runner@example.invalid');
   await page.getByLabel('Password').fill('synthetic-password');
   await page.getByRole('button', { name: /Accedi alla dashboard/ }).click();
-  await page.getByRole('button', { name: 'Advanced Analytics' }).click();
+  await navigateTo(page, 'advanced');
   const analytics = page.getByRole('region', { name: 'Advanced Analytics' });
   const module = analytics.getByLabel('Modulo');
   const type = analytics.getByLabel('Tipo di corsa');
