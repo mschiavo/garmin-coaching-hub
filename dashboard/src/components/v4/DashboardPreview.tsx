@@ -34,7 +34,7 @@ export function DashboardPreview() {
   const [active, setActive] = useState('home');
   return <AppShell sectionTitle="Dashboard" items={items} active={active} onNavigate={setActive}
     onSignOut={() => undefined} status="DATI DEMO" statusKind="demo" showRefresh={false} showLogout={false} refreshing={false}
-    onRefresh={() => undefined} headerContent={<div className="v4-preview-header"><span className="v4-preview-eyebrow">GARMIN COACHING HUB</span><h1>{active === 'home' ? 'La tua performance.' : items.find(item => item.id === active)?.label}</h1></div>}
+    onRefresh={() => undefined} headerContent={<div className="v4-preview-header"><span className="v4-preview-eyebrow">GARMIN COACHING HUB · V4</span><h1>{active === 'home' ? 'Dashboard' : items.find(item => item.id === active)?.label}</h1></div>}
     headerControls={<><span className="v4-preview-period">6–12 gen 2025</span><span className="v4-athlete-badge"><span>AD</span><b>Atleta demo</b></span></>}
     footerContent={<div className="v4-preview-footer">PREVIEW LOCALE <span>·</span> OFFLINE</div>}>
     {active === 'home' ? <DashboardHome activities={activities} daily={daily} weeklyLoad={weeklyLoad} period={period}

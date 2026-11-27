@@ -2,22 +2,21 @@ import { expect, test } from '@playwright/test';
 import path from 'node:path';
 
 const output = path.join(process.cwd(), 'test-results', 'v4-visual-preview');
-const forbiddenHosts = ['supabase.co', 'garmin.com', 'garminconnect.com'];
 
 async function assertOfflineAndComplete(page: import('@playwright/test').Page) {
   await page.goto('/tests/v4-dashboard-preview.html');
-  await expect(page.getByRole('heading', { name: 'La tua performance.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toBeVisible();
   await expect(page.getByText(/tutti i valori sono sintetici/i)).toBeVisible();
   await expect(page.locator('#v4-volume-title')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Settimana registrata' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Performance osservata' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Recovery signals' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Segnali di recupero' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Attività recenti' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Copertura dei dati' })).toBeVisible();
   const hosts = await page.evaluate(() => performance.getEntriesByType('resource').map(entry => {
     try { return new URL(entry.name).hostname; } catch { return ''; }
   }));
-  expect(hosts.some(host => forbiddenHosts.some(forbidden => host === forbidden || host.endsWith(`.${forbidden}`)))).toBe(false);
+  expect(hosts.filter(host => host && host !== '127.0.0.1' && host !== 'localhost')).toEqual([]);
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     page: document.documentElement.scrollWidth,
@@ -53,5 +52,5 @@ test('preview sintetica: mobile, navigazione touch e nessun overflow globale', a
   await page.getByRole('button', { name: 'Performance' }).click();
   await expect(page.getByRole('heading', { name: 'Performance · anteprima' })).toBeVisible();
   await page.getByRole('button', { name: 'Torna alla Home' }).click();
-  await expect(page.getByRole('heading', { name: 'La tua performance.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /La tua performance/ })).toBeVisible();
 });

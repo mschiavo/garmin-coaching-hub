@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { Activity, CalendarDays, Clock3, Footprints, Gauge, HeartPulse, Moon, Route, ShieldCheck } from 'lucide-react';
 import type { ActivityRow, DailyRow, Period } from '../../analytics/dates';
 import { shift } from '../../analytics/dates';
@@ -76,35 +77,56 @@ export function DashboardHome({ activities, daily, weeklyLoad, period, coverageK
   const longRun = knownDistances.length ? Math.max(...knownDistances) : null;
   const weekStart = shift(period.end, -6);
   const weekDays = Array.from({ length: 7 }, (_, index) => shift(weekStart, index));
+  const dayIsCovered = weekDays.every(isDayCovered);
+  const dailyMap = new Map(sortedDaily.map(row => [row.date, row]));
   const runVolumeByDate = new Map<string, number>();
   for (const row of orderedActivities) {
     if ((row.type === 'running' || row.type === 'trail_running') && distance(row) != null) {
       runVolumeByDate.set(row.date, (runVolumeByDate.get(row.date) ?? 0) + distance(row)!);
     }
   }
-  const maxDayKm = Math.max(0, ...runVolumeByDate.values());
+  const dayVolumes = weekDays.map(day => runVolumeByDate.get(day) ?? 0);
+  const knownDayVolumes = weekDays.map((day, index) => isDayCovered(day) ? dayVolumes[index] : null);
+  const maxDayKm = Math.max(0, ...knownDayVolumes.filter(valid));
+  const daySessions = weekDays.map(day => orderedActivities.filter(row => row.date === day).length);
+  const hrvWeek = weekDays.map(day => dailyMap.get(day)?.hrv);
+  const sleepWeek = weekDays.map(day => dailyMap.get(day)?.sleep_h);
+  const chartedKm = weeklyLoad.length && weeklyLoad.every(row => valid(row.km))
+    ? weeklyLoad.reduce((sum, row) => sum + row.km!, 0) : null;
   const recent = orderedActivities.slice(0, 5);
 
   return <section className={`v4-dashboard ${demo ? 'v4-dashboard--demo' : ''}`} aria-label="Riepilogo dashboard">
     {demo && <div className="v4-demo-banner" role="note"><span className="v4-demo-banner__dot"/> Preview visuale · tutti i valori sono sintetici, nessun servizio remoto è collegato</div>}
+    <header className="v4-home-hero">
+      <div className="v4-home-hero__copy"><span className="v4-card-kicker">RIEPILOGO · {window.toUpperCase()}</span>
+        <h2>La tua performance,<br/><em>in un unico sguardo.</em></h2>
+        <p>Volume registrato e misure giornaliere, con provenienza e copertura sempre visibili.</p>
+        <div className="v4-home-hero__chips"><span><Activity size={14} aria-hidden="true"/>{orderedActivities.length} attività registrate</span><span><HeartPulse size={14} aria-hidden="true"/>{sortedDaily.filter(row => row.hrv != null || row.sleep_h != null || row.resting_hr != null || row.stress != null).length} giornate con misure</span></div>
+      </div>
+      <div className="v4-home-hero__aside"><div className="v4-home-hero__visual" role="img" aria-label={dayIsCovered ? 'Volume corsa osservato negli ultimi sette giorni' : 'Volume giornaliero parziale; alcuni giorni non hanno copertura verificata'}>
+        {weekDays.map((day, index) => <span key={day} title={`${dateText(day)} · ${isDayCovered(day) ? `${fmt(dayVolumes[index])} km` : 'copertura non verificata'}`} className={!isDayCovered(day) ? 'is-unknown' : ''} style={{ '--bar-height': `${isDayCovered(day) && maxDayKm ? Math.max(8, dayVolumes[index] / maxDayKm * 100) : 8}%` } as CSSProperties}/>)}</div>
+        <div className="v4-home-hero__aside-label"><span>VOLUME OSSERVATO</span><strong>{dayIsCovered ? 'Ultimi 7 giorni' : 'Copertura parziale'}</strong><small>Km di corsa · giorni verificati</small></div>
+      </div>
+    </header>
     <div className="v4-dashboard-kpis v4-metric-grid">
-      <MetricCard label="Distanza corsa" value={totalKm} unit="km" window={window} source={source} status={activityStatus} detail={`${knownDistances.length}/${runs.length} corse con distanza`} icon={Route}/>
-      <MetricCard label="Sedute registrate" value={sessionCount} unit="sedute" window={window} source={source} status={activityStatus} detail="Attività presenti nell'archivio" icon={Footprints}/>
-      <MetricCard label="HRV media" value={average(hrv)} unit="ms" window={window} source={source} status={metricStatus(hrv.length)} detail={`${hrv.length} misure disponibili`} icon={HeartPulse}/>
-      <MetricCard label="Sonno medio" value={average(sleep)} unit="h" window={window} source={source} status={metricStatus(sleep.length)} detail={`${sleep.length} misure disponibili`} icon={Moon}/>
+      <MetricCard label="Distanza corsa" value={totalKm} unit="km" window={window} source={source} status={activityStatus} detail={`${knownDistances.length}/${runs.length} corse con distanza`} icon={Route} tone="blue" trend={dayIsCovered ? dayVolumes : undefined}/>
+      <MetricCard label="Sedute registrate" value={sessionCount} unit="sedute" window={window} source={source} status={activityStatus} detail="Attività presenti nell'archivio" icon={Footprints} tone="violet" trend={dayIsCovered ? daySessions : undefined}/>
+      <MetricCard label="HRV media" value={average(hrv)} unit="ms" window={window} source={source} status={metricStatus(hrv.length)} detail={`${hrv.length} misure disponibili`} icon={HeartPulse} tone="cyan" trend={hrvWeek.every(valid) ? hrvWeek as number[] : undefined}/>
+      <MetricCard label="Sonno medio" value={average(sleep)} unit="h" window={window} source={source} status={metricStatus(sleep.length)} detail={`${sleep.length} misure disponibili`} icon={Moon} tone="mint" trend={sleepWeek.every(valid) ? sleepWeek as number[] : undefined}/>
     </div>
 
     <div className="v4-dashboard-grid v4-dashboard-grid--primary">
       <section className="v4-dashboard-card v4-dashboard-volume" aria-labelledby="v4-volume-title">
-        <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">CARICO DESCRITTIVO</span><h2 id="v4-volume-title">Volume settimanale</h2><p>Chilometri di corsa registrati · non è un punteggio fisiologico</p></div><span className="v4-source-pill">{demo ? 'DEMO' : 'ARCHIVIO'}</span></header>
-        {weeklyLoad.length ? <Plot title="Volume settimanale" subtitle="Distanza per settimana, unità km" data={weeklyLoad.map(row => ({ ...row, label: row.label }))} series={[{ key: 'km', name: 'Distanza corsa (km)', color: color.blue }]} kind="bar" height={175} meta={{ x: 'Settimana', y: 'Distanza corsa (km)', unit: 'km', zero: true }}/>
+        <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">CARICO DESCRITTIVO</span><h2 id="v4-volume-title">Il volume, settimana dopo settimana</h2><p>Distanza corsa registrata · i vuoti restano visibili</p></div><span className="v4-source-pill">{demo ? 'DEMO' : 'ARCHIVIO'}</span></header>
+        <div className="v4-volume-context"><span>{chartedKm == null ? 'Totale parziale' : 'Volume nel grafico'}</span><strong>{chartedKm == null ? '—' : `${fmt(chartedKm)} km`}</strong><small>{weeklyLoad.length} settimane · chilometri registrati</small></div>
+        {weeklyLoad.length ? <Plot title="Volume settimanale" subtitle="Distanza per settimana, unità km" data={weeklyLoad.map(row => ({ ...row, label: row.label }))} series={[{ key: 'km', name: 'Distanza corsa (km)', color: color.blue }]} kind="area" height={225} meta={{ x: 'Settimana', y: 'Distanza corsa (km)', unit: 'km', zero: true }}/>
           : <DataState kind="empty">Non ci sono ancora settimane con misure valide da rappresentare.</DataState>}
         <details className="v4-volume-table"><summary>Apri tabella del volume</summary><div className="v4-table-scroll"><table><caption>Volume settimanale in chilometri</caption><thead><tr><th>Settimana</th><th>Corse</th><th>Volume</th><th>Stato</th></tr></thead><tbody>{weeklyLoad.map(row => <tr key={row.week}><td>{row.label}</td><td>{row.runs}</td><td>{fmt(row.km)} km</td><td>{row.partial ? 'Parziale' : 'Disponibile'}</td></tr>)}</tbody></table></div></details>
       </section>
 
       <section className="v4-dashboard-card v4-week-card" aria-labelledby="v4-week-title">
         <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">ULTIMI 7 GIORNI</span><h2 id="v4-week-title">Settimana registrata</h2></div><CalendarDays size={19} aria-hidden="true"/></header>
-        <div className="v4-week-summary"><strong>{orderedActivities.filter(row => row.date >= weekStart).length}</strong><span>sedute<br/>registrate</span>
+        <div className="v4-week-summary"><div className="v4-week-summary__count"><strong>{orderedActivities.filter(row => row.date >= weekStart).length}</strong><span>sedute<br/>registrate</span></div>
           {goal ? <ProgressRing label={goal.label} actual={goal.actual} target={goal.target} unit={goal.unit} period={goal.period}/> : <DataState kind="empty" title="Target non configurato">Il progresso resta nascosto finché non esiste un obiettivo valido.</DataState>}
         </div>
         <div className="v4-week-bars" aria-label="Distanza corsa registrata per giorno">
@@ -128,7 +150,7 @@ export function DashboardHome({ activities, daily, weeklyLoad, period, coverageK
       </section>
 
       <section className="v4-dashboard-card v4-recovery-card" aria-labelledby="v4-recovery-title">
-        <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">MISURE GIORNALIERE</span><h2 id="v4-recovery-title">Recovery signals</h2><p>Ogni indicatore mantiene il proprio campione</p></div><HeartPulse size={19} aria-hidden="true"/></header>
+        <header className="v4-dashboard-card__header"><div><span className="v4-card-kicker">MISURE GIORNALIERE</span><h2 id="v4-recovery-title">Segnali di recupero</h2><p>Ogni indicatore mantiene il proprio campione</p></div><HeartPulse size={19} aria-hidden="true"/></header>
         <div className="v4-recovery-list">
           <RecoveryRow label="HRV" value={average(hrv)} unit="ms" values={hrv} stroke="var(--state-success)" sampleCount={hrv.length}/>
           <RecoveryRow label="Sonno" value={average(sleep)} unit="h" values={sleep} stroke="var(--accent-primary)" sampleCount={sleep.length}/>
