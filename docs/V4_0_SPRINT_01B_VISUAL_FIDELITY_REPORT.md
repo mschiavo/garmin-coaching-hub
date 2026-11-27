@@ -1,7 +1,7 @@
 # Garmin Coaching Hub V4.0 — Sprint 01B Visual Fidelity
 
-**Stato:** implementazione locale completata; nessun push, merge o deploy.  
-**Branch:** `feature/v4-visual-foundation`  
+**Stato:** implementazione locale completata; nessun push, merge o deploy.
+**Branch:** `feature/v4-visual-foundation`
 **Base verificata:** `cede2d135665df457f0f5e243982b6abce98bba8` (Sprint 01).
 
 ## Diagnosi della distanza dai mockup
