@@ -240,6 +240,44 @@ test('failed remote logout still clears the local Auth session across reload', a
   expect(state.unexpected).toEqual([]);
 });
 
+test('V4 Planning, Goal Center and Performance previews are explicit and add no network calls', async ({ page }) => {
+  const { state } = await setup(page);
+  await signIn(page);
+  await expect(page.getByText(/Attività 2501\/2501/)).toBeVisible();
+  const pagesBefore = state.pages;
+
+  await page.getByRole('button', { name: 'Goal Center · Anteprima V4' }).click();
+  await expect(page.getByRole('heading', { name: 'Goal Center · anteprima V4', exact: true })).toBeVisible();
+  await expect(page.getByText('Dati dimostrativi · esempio 28/40 km')).toBeVisible();
+  await expect(page.getByRole('img', { name: /28 su 40 km, 70 percento/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Planning · Anteprima V4' }).click();
+  await expect(page.getByRole('heading', { name: 'Planning · anteprima V4', exact: true })).toBeVisible();
+  await expect(page.getByText(/Nessuna sessione è stata creata o salvata/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Performance Lab · Anteprima V4' }).click();
+  await expect(page.getByRole('heading', { name: 'Performance Lab · anteprima V4', exact: true })).toBeVisible();
+  await expect(page.getByText(/VO₂max Garmin non è esposto con unità verificate/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'VO₂max Garmin' })).toBeVisible();
+  const vdot = page.locator('.v4-metric-card').filter({ hasText: 'VDOT' });
+  await expect(vdot.locator('.v4-metric-card__value strong')).toHaveText('—');
+  expect(state.pages).toBe(pagesBefore);
+  expect(state.unexpected).toEqual([]);
+});
+
+test('V4 dashboard shell fits mobile and tablet widths without global horizontal overflow', async ({ page }) => {
+  const { state } = await setup(page);
+  await signIn(page);
+  for (const width of [360, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await expect(page.getByRole('navigation', { name: 'Navigazione principale' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Attiva tema light' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Disconnetti' })).toBeVisible();
+  }
+  expect(state.unexpected).toEqual([]);
+});
+
 test('range change and logout discard requests that finish late', async ({ page }) => {
   const { state, resume } = await setup(page);
   state.pause = true;
