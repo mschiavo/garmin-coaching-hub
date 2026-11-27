@@ -34,12 +34,14 @@ export function DashboardPreview() {
   const [active, setActive] = useState('home');
   return <AppShell sectionTitle="Dashboard" items={items} active={active} onNavigate={setActive}
     onSignOut={() => undefined} status="DATI DEMO" statusKind="demo" showRefresh={false} showLogout={false} refreshing={false}
-    onRefresh={() => undefined} headerContent={<div className="v4-preview-header"><span className="v4-preview-eyebrow">GARMIN COACHING HUB · V4</span><h1>{active === 'home' ? 'Dashboard' : items.find(item => item.id === active)?.label}</h1></div>}
+    onRefresh={() => undefined} headerContent={<div className="v4-preview-header"><span className="v4-preview-eyebrow">GARMIN COACHING HUB · V4</span><h1>{active === 'home' ? 'Dashboard' : items.find(item => item.id === active)?.label}</h1>{active === 'home' && <small>Allenamento, performance e recupero · tutti i valori sono sintetici · preview offline</small>}</div>}
     headerControls={<><span className="v4-preview-period">6–12 gen 2025</span><span className="v4-athlete-badge"><span>AD</span><b>Atleta demo</b></span></>}
     footerContent={<div className="v4-preview-footer">PREVIEW LOCALE <span>·</span> OFFLINE</div>}>
+    <div className="v4-preview-content">
     {active === 'home' ? <DashboardHome activities={activities} daily={daily} weeklyLoad={weeklyLoad} period={period}
       coverageKind="available" coverageMessage="Fixture sintetica completa per il periodo visualizzato." isDayCovered={() => true}
       updatedAt="2025-01-12T18:30:00.000Z" source="Fixture sintetica" goal={{ actual: 36.3, target: 42, unit: 'km', label: 'Volume settimanale', period: 'Obiettivo demo · 6–12 gen' }} demo/>
       : <section className="v4-preview-placeholder"><DataState kind="empty" title={`${items.find(item => item.id === active)?.label} · anteprima`}>Sezione dimostrativa non collegata a servizi o account. I valori sintetici sono mostrati soltanto nella Home.</DataState><button type="button" onClick={() => setActive('home')}>Torna alla Home</button></section>}
+    </div>
   </AppShell>;
 }
