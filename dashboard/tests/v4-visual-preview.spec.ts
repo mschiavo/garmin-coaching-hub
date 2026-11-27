@@ -55,7 +55,8 @@ test('preview sintetica: desktop, desktop largo e tablet; screenshot viewport e 
       expect(geometry.topbar.height).toBeLessThanOrEqual(85);
       expect(geometry.kpis).toHaveLength(4);
       expect(geometry.kpis.every(kpi => Math.abs(kpi.y - geometry.firstKpi.y) < 1)).toBeTruthy();
-      expect(geometry.kpis.every(kpi => kpi.height >= 95 && kpi.height <= 120)).toBeTruthy();
+      // Sprint 01E gives every KPI metadata readable at 13px; the compact row may grow to 150px.
+      expect(geometry.kpis.every(kpi => kpi.height >= 95 && kpi.height <= 150)).toBeTruthy();
       expect(geometry.volume.x).toBeLessThan(geometry.week.x);
       expect(geometry.volume.width / geometry.week.width).toBeGreaterThan(1.7);
       expect(geometry.volume.width / geometry.week.width).toBeLessThan(2.3);

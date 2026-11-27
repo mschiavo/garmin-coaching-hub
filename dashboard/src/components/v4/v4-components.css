@@ -475,3 +475,152 @@
 @media(max-width:900px){.v4-goal-hero{grid-template-columns:1fr}.v4-weekly-layout{grid-template-columns:1fr}.v4-weekly-aside{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.v4-advanced-page{gap:10px;padding:11px 12px 22px}.v4-advanced-card{padding:13px;border-radius:13px}.v4-advanced-heading h2,.v4-advanced-card h2{font-size:15px}.v4-advanced-heading p,.v4-advanced-card>p{font-size:9px}.v4-multi-ring-layout{grid-template-columns:minmax(100px,.72fr) minmax(0,1.28fr);gap:10px}.v4-ring-item{grid-template-columns:8px minmax(0,1fr);gap:6px;padding:8px}.v4-ring-item>b{grid-column:2;justify-self:start;font-size:14px}.v4-ring-item strong{font-size:10px}.v4-ring-item small{font-size:8px}.v4-multi-ring-center strong{font-size:22px}.v4-multi-ring-center span{font-size:8px}.v4-weekly-aside,.v4-performance-grid,.v4-trend-pair{grid-template-columns:1fr}.v4-radar-chart{height:260px;min-height:240px}.v4-objective-list{grid-template-columns:1fr}.v4-performance-summary{gap:7px}.v4-performance-kpi{grid-template-columns:1fr;justify-items:start;gap:4px;padding:10px}.v4-performance-kpi>svg{grid-row:auto;width:17px}.v4-performance-kpi>span{font-size:8px}.v4-performance-kpi>strong{font-size:20px}.v4-performance-kpi>small{font-size:7px}.v4-race-projections{grid-template-columns:1fr}.v4-race-projections h3{grid-column:auto}.v4-radar-table-wrap{max-height:130px}.v4-recovery-baseline__grid{grid-template-columns:repeat(2,minmax(0,1fr))}.v4-recovery-baseline__heading{align-items:flex-start;flex-direction:column}}
 @media(max-width:650px){.v4-goal-mini-ring{width:48px}.v4-goal-mini-rings{gap:2px}.v4-goal-mini-rings small{font-size:7px}.v4-radar-table-wrap{max-height:130px}}
+
+/* Sprint 01E — semantic readability scale for every V4 screen. Keep overrides
+   centralized so responsive rules cannot silently shrink essential labels. */
+.v4-theme-root .v4-sidebar nav button { font-size: var(--type-control); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-sidebar .nav-label,
+.v4-theme-root .v4-brand small,
+.v4-theme-root .v4-live-heading > span,
+.v4-theme-root .v4-preview-eyebrow,
+.v4-theme-root .v4-card-kicker,
+.v4-theme-root .v4-source-pill,
+.v4-theme-root .v4-data-state__label { font-size: var(--type-secondary); line-height: var(--type-line-normal); }
+.v4-theme-root .v4-live-heading > h1,
+.v4-theme-root .v4-preview-header h1 { font-size: var(--type-section-title); line-height: var(--type-line-tight); }
+.v4-theme-root .page-head h1 { font-size: var(--type-page-title); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-data-state h2 { font-size: var(--type-card-title); line-height: var(--type-line-normal); }
+.v4-theme-root .v4-data-state__message { font-size: var(--type-body); line-height: var(--type-line-relaxed); }
+.v4-theme-root .chart-y-label,
+.v4-theme-root .chart-x-label,
+.v4-theme-root .load-chart-legend,
+.v4-theme-root .load-inspector label,
+.v4-theme-root .load-inspector-values span,
+.v4-theme-root .load-inspector small,
+.v4-theme-root .load-tooltip { color: var(--text-secondary); font-size: var(--type-label); line-height: var(--type-line-normal); }
+.v4-theme-root .load-tooltip { color: var(--text-primary); background: var(--surface-elevated); border-color: var(--border-subtle); }
+.v4-theme-root .load-tooltip strong,
+.v4-theme-root .load-inspector-values b { color: var(--text-primary); }
+.v4-theme-root .v4-sidebar-footer small,
+.v4-theme-root .v4-live-heading > small,
+.v4-theme-root .v4-preview-header > small,
+.v4-theme-root .v4-advanced-heading p,
+.v4-theme-root .v4-advanced-card > p,
+.v4-theme-root .v4-dashboard-card__header p,
+.v4-theme-root .v4-week-footnote,
+.v4-theme-root .v4-visual-footnote,
+.v4-theme-root .v4-accessible-table,
+.v4-theme-root .v4-radar-focus,
+.v4-theme-root .v4-radar-table-wrap,
+.v4-theme-root .v4-radar-table-wrap table,
+.v4-theme-root .v4-goal-stats span,
+.v4-theme-root .v4-objective-list small,
+.v4-theme-root .v4-weekly-stat,
+.v4-theme-root .v4-week-deviations > div,
+.v4-theme-root .v4-performance-kpi > span,
+.v4-theme-root .v4-performance-kpi > small,
+.v4-theme-root .v4-mini-trend h3 small,
+.v4-theme-root .v4-zone-list,
+.v4-theme-root .v4-race-projections span,
+.v4-theme-root .v4-race-projections small,
+.v4-theme-root .v4-performance-disclaimer,
+.v4-theme-root .v4-recovery-baseline__heading,
+.v4-theme-root .v4-recovery-baseline__heading span,
+.v4-theme-root .v4-recovery-baseline__grid span,
+.v4-theme-root .v4-recovery-baseline__grid small,
+.v4-theme-root .v4-demo-label { font-size: var(--type-secondary); line-height: var(--type-line-normal); }
+.v4-theme-root .v4-dashboard-card__header h2,
+.v4-theme-root .v4-advanced-heading h2,
+.v4-theme-root .v4-advanced-card h2,
+.v4-theme-root .v4-week-deviations h3,
+.v4-theme-root .v4-race-projections h3,
+.v4-theme-root .v4-mini-trend h3 { font-size: var(--type-card-title); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-metric-card__top h2,
+.v4-theme-root .v4-metric-card__status,
+.v4-theme-root .v4-metric-card__meta,
+.v4-theme-root .v4-metric-card__detail,
+.v4-theme-root .v4-week-day,
+.v4-theme-root .v4-week-day > small,
+.v4-theme-root .v4-week-day__date,
+.v4-theme-root .v4-week-day__sessions,
+.v4-theme-root .v4-week-summary > span,
+.v4-theme-root .v4-week-summary .v4-data-state__label,
+.v4-theme-root .v4-week-summary .v4-data-state__message,
+.v4-theme-root .v4-progress-card h2,
+.v4-theme-root .v4-progress-ring__center span,
+.v4-theme-root .v4-progress-values,
+.v4-theme-root .v4-progress-excess,
+.v4-theme-root .v4-progress-card > small,
+.v4-theme-root .v4-performance-rows > div > span,
+.v4-theme-root .v4-performance-rows small,
+.v4-theme-root .v4-recovery-name,
+.v4-theme-root .v4-recovery-row strong small,
+.v4-theme-root .v4-recovery-count,
+.v4-theme-root .v4-coverage-meta,
+.v4-theme-root .v4-ring-item strong,
+.v4-theme-root .v4-ring-item small,
+.v4-theme-root .v4-multi-ring-center span,
+.v4-theme-root .v4-radar-legend,
+.v4-theme-root .v4-radar-legend small,
+.v4-theme-root .v4-goal-stats span,
+.v4-theme-root .v4-objective-list strong,
+.v4-theme-root .v4-weekly-stat,
+.v4-theme-root .v4-performance-kpi > span,
+.v4-theme-root .v4-performance-kpi > small,
+.v4-theme-root .v4-zone-list,
+.v4-theme-root .v4-recovery-baseline__grid span,
+.v4-theme-root .v4-recovery-baseline__grid small { font-size: var(--type-label); line-height: var(--type-line-normal); }
+.v4-theme-root .v4-dashboard .v4-metric-card__value strong,
+.v4-theme-root .v4-performance-kpi > strong { font-size: var(--type-kpi); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-ring-item > b,
+.v4-theme-root .v4-multi-ring-center strong { font-size: 1.5rem; line-height: var(--type-line-tight); }
+.v4-theme-root .v4-dashboard .v4-metric-card__meta { max-width: 100%; line-height: var(--type-line-tight); }
+.v4-theme-root .v4-dashboard .v4-metric-card__detail { max-width: calc(100% - 64px); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-week-summary { grid-template-columns: minmax(0, 1fr) 168px; }
+.v4-theme-root .v4-week-summary .v4-ring-card--compact { width: 168px; flex-basis: 168px; }
+.v4-theme-root .v4-ring-card--compact .v4-multi-ring { width: 84px !important; }
+.v4-theme-root .v4-ring-card--compact .v4-multi-ring-center span { font-size: 12px; }
+.v4-theme-root .v4-week-bars { min-height: 88px; height: auto; }
+.v4-theme-root .v4-dashboard-card__header,
+.v4-theme-root .v4-advanced-heading { line-height: var(--type-line-normal); }
+.v4-theme-root .chart-cartesian .recharts-cartesian-axis-tick-value,
+.v4-theme-root .chart-cartesian .recharts-legend-item-text,
+.v4-theme-root .v4-advanced-page .recharts-cartesian-axis-tick-value,
+.v4-theme-root .v4-advanced-page .recharts-legend-item-text { font-size: 13px; }
+.v4-theme-root .chart-cartesian .recharts-default-legend,
+.v4-theme-root .v4-advanced-page .recharts-default-legend { font-size: 13px !important; line-height: var(--type-line-normal); }
+.v4-theme-root .v4-dashboard .v4-recent-table th,
+.v4-theme-root .v4-dashboard .v4-recent-table td { font-size: var(--type-label); }
+.v4-theme-root .v4-dashboard .v4-recent-table td strong { font-size: var(--type-label); }
+.v4-theme-root .v4-dashboard .v4-recent-table td small { font-size: var(--type-secondary); }
+.v4-theme-root .v4-radar-table-wrap th,
+.v4-theme-root .v4-radar-table-wrap td,
+.v4-theme-root .v4-accessible-table th,
+.v4-theme-root .v4-accessible-table td { font-size: var(--type-secondary); }
+.v4-theme-root .v4-volume-table summary,
+.v4-theme-root .v4-volume-table th,
+.v4-theme-root .v4-volume-table td { font-size: var(--type-label); }
+.v4-theme-root .v4-goal-mini-rings small { font-size: var(--type-label); line-height: var(--type-line-tight); }
+.v4-theme-root .v4-recovery-baseline__grid strong { font-size: 14px; line-height: var(--type-line-tight); }
+.v4-theme-root .chart-cartesian .recharts-cartesian-axis-tick-value,
+.v4-theme-root .load-chart-v312 .recharts-cartesian-axis-tick-value { fill: var(--text-secondary) !important; font-size: 13px !important; }
+
+@media (max-width: 650px) {
+  .v4-theme-root .v4-live-heading > h1,
+  .v4-theme-root .v4-preview-header h1 { font-size: 1.25rem; line-height: var(--type-line-tight); }
+  .v4-theme-root .v4-ring-item > b,
+  .v4-theme-root .v4-multi-ring-center strong { font-size: 1.375rem; }
+  .v4-theme-root .v4-multi-ring-layout { grid-template-columns: minmax(0, 1fr); justify-items: stretch; gap: 18px; }
+  .v4-theme-root .v4-multi-ring-layout > .v4-multi-ring { width: min(64vw, 248px) !important; }
+  .v4-theme-root .v4-multi-ring-center span { max-width: 14ch; }
+  .v4-theme-root .v4-ring-legend { width: 100%; }
+  .v4-theme-root .v4-ring-item { grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; }
+  .v4-theme-root .v4-dashboard .v4-metric-card { min-height: 116px; padding: 10px; }
+  .v4-theme-root .v4-week-summary { grid-template-columns: minmax(0, 1fr) 148px; }
+  .v4-theme-root .v4-week-summary .v4-ring-card--compact { width: 148px; flex-basis: 148px; }
+  .v4-theme-root .v4-ring-card--compact .v4-multi-ring { width: 78px !important; }
+  .v4-theme-root .v4-week-bars { min-height: 88px; }
+  .v4-theme-root .v4-recovery-row { min-height: 42px; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; padding: 7px; }
+  .v4-theme-root .v4-recovery-count { grid-column: 1 / -1; white-space: normal; }
+  .v4-theme-root .v4-radar-chart { min-height: 280px; height: 300px; }
+}

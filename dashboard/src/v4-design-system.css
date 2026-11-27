@@ -1,5 +1,17 @@
 :root {
   color-scheme: dark;
+  /* Semantic typography scale shared by the live dashboard and offline previews. */
+  --type-page-title: clamp(1.875rem, 2.5vw, 2.375rem);
+  --type-section-title: 1.125rem;
+  --type-card-title: 1rem;
+  --type-body: 0.9375rem;
+  --type-control: 0.875rem;
+  --type-label: 0.8125rem;
+  --type-secondary: 0.75rem;
+  --type-kpi: clamp(1.75rem, 2.2vw, 2.125rem);
+  --type-line-tight: 1.25;
+  --type-line-normal: 1.5;
+  --type-line-relaxed: 1.65;
   --surface-base: var(--v4-c-080f1dff);
   --surface-panel: var(--v4-c-111e31ff);
   --surface-elevated: var(--v4-c-152238ff);
