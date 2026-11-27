@@ -17,8 +17,8 @@ type DecimalString = string; // PostgreSQL NUMERIC
 type Revision = string; // BIGINT
 type Page<T> = { revision: Revision; count: number; has_more: boolean; next_cursor: string|null; rows: T[] };
 type PlanCycle = { id:string; name:string; start_date:CivilDate; end_date:CivilDate; timezone:string; status:string; revision:Revision };
-type PlannedSession = { id:string; cycle_id:string|null; week_start:CivilDate|null; session_date:CivilDate; local_time:string|null; sport:string; session_type:string; title:string; target_distance_m:DecimalString|null; target_duration_s:DecimalString|null; status:string; revision:Revision };
-type Goal = { id:string; scope:string; metric:string; target:DecimalString; unit:string; direction:string; start_date:CivilDate; end_date:CivilDate; status:string; revision:Revision };
+type PlannedSession = { id:string; cycle_id:string|null; week_start:CivilDate|null; session_date:CivilDate; sport:string; session_type:string; title:string; target_distance_m:DecimalString|null; target_duration_s:DecimalString|null; status:'planned'|'completed'|'skipped'|'cancelled'; completion_kind:'manual'|'verified'|null; revision:Revision };
+type Goal = { id:string; scope:'week'|'month'|'block'|'race'; metric:'distance'|'duration'|'sessions'|'race_time'; target:DecimalString; unit:'m'|'s'|'sessions'; direction:'at_least'|'lower_is_better'; start_date:CivilDate; end_date:CivilDate; status:string; revision:Revision };
 ```
 
 Cataloghi sport/tipo/intensità da definire; note bounded/plain text. Sono esempi di contratto, non implementazione.
@@ -33,7 +33,7 @@ Cataloghi sport/tipo/intensità da definire; note bounded/plain text. Sono esemp
 | `planning_update_cycle_v1` | id, revision, patch | atomico o 40001; no patch vuota |
 | `planning_cancel_cycle_v1` | id/revision | cancel logico, history preservata |
 | `planning_list_sessions_v1` | date range/cycle/status/page | ordine date/ordinal/id, bounded |
-| `planning_create_session_v1` | cycle/week, data, sport/tipo, target, note | record validato e coerente |
+| `planning_create_session_v1` | cycle/week, sola data, sport/tipo, target, note | record validato e coerente; API V1 non accetta ora locale |
 | `planning_update_session_v1` | id/revision/patch | optimistic update |
 | `planning_reschedule_session_v1` | id/revision/nuova data/ora | evento history, no activity mutation |
 | `planning_set_session_status_v1` | id/revision/status/origine | transition validate, cancelled ≠ skipped |
@@ -42,8 +42,8 @@ Cataloghi sport/tipo/intensità da definire; note bounded/plain text. Sono esemp
 | `goals_update_v1` | id/revision/patch | update versionato |
 | `goals_cancel_v1` | id/revision | cancel logico |
 | `goals_get_progress_v1` | goal/as-of/source revision | actual/target/gap/coverage/samples/formula version; null se non valido |
-| `planning_link_activity_v1` | session, bigint activity string, revision, explicit confirmation | link manuale ad activity esistente |
-| `planning_unlink_activity_v1` | session/activity/revision | rimuove solo link, registra evento |
+| `planning_link_activity_v1` | session, bigint activity string, revision, explicit confirmation | link manuale ad activity esistente; una activity può appartenere a una sola sessione attiva, sessione multi-activity consentita |
+| `planning_unlink_activity_v1` | session/activity/revision | disattiva link (unlinked_at), registra evento; non elimina il record storico |
 
 Batch solo atomiche/bounded; consolidamento funzioni ammesso dopo profiling se invarianti uguali.
 
@@ -53,7 +53,7 @@ Batch solo atomiche/bounded; consolidamento funzioni ammesso dopo profiling se i
 {"api_version":1,"goal_id":"uuid","as_of":"YYYY-MM-DD","formula_version":"goal-progress-1","metric":"distance","unit":"m","target":"40000","actual":"28000","gap_abs":"-12000","progress_pct":"70","status":"partial","coverage":{"state":"partial","valid_days":5,"unknown_days":2},"samples":{"activities":3}}
 ```
 
-Percent/gap percent nullable; race-time restituisce delta secondi (meno è meglio), no percentage. Nessun raw Garmin/secret.
+Percent/gap percent nullable; catalogo limitato a distance(m), duration(s), sessions(intero non negativo), race_time(s). Target zero è ammesso per sessions ma produce percentage null; distance/duration/race_time richiedono target positivo. Il race-time restituisce delta secondi (meno è meglio), no percentage. Completed manuale è reso separatamente da verified e non contribuisce al totale Garmin. Nessun raw Garmin/secret.
 
 ## Errori e runtime
 

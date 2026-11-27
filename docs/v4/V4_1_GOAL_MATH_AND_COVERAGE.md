@@ -18,13 +18,13 @@ gap_pct = 100 × (actual − target) / target
 
 ## Aderenza e periodo aperto
 
-Aderenza = sessioni scadute valutabili e confermate / sessioni scadute eleggibili. Escludere future, cancelled e superseded; chiarire se completamento manuale senza link conta. Attività fuori piano aumenta volume ma non aderenza. Deduplicare totale per activity ID anche se più link, salvo suddivisione confermata e pesata.
+Aderenza = sessioni scadute valutabili / sessioni scadute eleggibili, con conteggi distinti per completamenti verificati e manuali. Escludere future, cancelled e superseded. Manual completion non incrementa attività verificate, chilometri o secondi Garmin. Attività fuori piano aumenta volume ma non aderenza. Deduplicare totale per activity ID; una activity può avere un solo link attivo. Una sessione può collegare più attività, sommate una sola volta per ID.
 
 Esempio settimana target 30 km. A mercoledì actual 18 km, planned-to-date (sessioni datate entro mercoledì) 25 km, gap −7. Sedute future non sono ritardo. 18/25=72% descrive il piano già dovuto, non il completamento del goal settimanale. Senza distribuzione giornaliera mostrare actual/target e “periodo in corso”; niente ripartizione uniforme inventata.
 
 ## Copertura
 
-Coverage è per giorno/sorgente. 0034 consente `success_empty` solo activities; l'assenza di misura giornaliera non è zero. In 0035 reconciliation null non è verified. Stati proposti:
+Coverage è per giorno/sorgente. 0034 consente `success_empty` solo activities; un valore zero aggregate è attestato solo se ogni data del periodo ha `source=activities`, `attempt_state=evidence=success_empty`, `item_count=0` e `reconciliation=verified`. L'assenza di riga, `reconciliation NULL` o assenza di misura giornaliera non è zero. Stati proposti:
 
 - `available`: intervallo coperto e campioni validi secondo metrica;
 - `partial`: almeno un campione ma copertura incompleta/parziale;

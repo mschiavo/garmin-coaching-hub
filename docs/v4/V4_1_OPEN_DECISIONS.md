@@ -1,4 +1,6 @@
-# V4.1 — Decisioni aperte
+# V4.1 — Decisioni aperte e default di attuazione locali
+
+Le direttive di sviluppo locale sono state fissate dall'utente nel prompt `CODEX_V4_1_UNICO_PROSEGUIMENTO.md` e registrate in `V4_1_IMPLEMENTATION_DECISIONS.md`. Le scelte non autorizzano cloud o rilascio. La tabella seguente conserva il registro storico delle alternative e degli aspetti residuali.
 
 Le otto decisioni seguenti richiedono approvazione prima di schema/RPC. Raccomandazioni non equivalgono ad approvazione.
 

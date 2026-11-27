@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:load": "node --test tests/training-load.test.mjs",
-    "test:analytics": "node --test tests/analytics.test.mjs tests/data-api.test.mjs",
+    "test:analytics": "node --test tests/analytics.test.mjs tests/data-api.test.mjs tests/goals.test.mjs",
     "test:charts": "playwright test",
     "test:integration": "playwright test --config=playwright.integration.config.ts"
   },
