@@ -144,6 +144,22 @@ class PlanningSchema(unittest.TestCase):
             with self.assertRaises(errors.InvalidParameterValue):
                 self.session(conn, cycle, session_date="2026-02-02")
 
+            week_id = conn.execute("""
+                INSERT INTO planning_private.plan_weeks(cycle_id,week_start)
+                VALUES (%s,DATE '2026-01-05') RETURNING id
+            """, (cycle,)).fetchone()[0]
+            conn.execute("""INSERT INTO planning_private.planned_sessions
+                (cycle_id,week_id,session_date,sport,session_type,title)
+                VALUES (%s,%s,DATE '2026-01-10','running','easy','Session in matching week')""",
+                (cycle, week_id))
+
+            second_cycle = self.cycle(conn, start="2026-01-05", end="2026-02-01")
+            with self.assertRaises(errors.ForeignKeyViolation):
+                conn.execute("""INSERT INTO planning_private.planned_sessions
+                    (cycle_id,week_id,session_date,sport,session_type,title)
+                    VALUES (%s,%s,DATE '2026-01-10','running','easy','Mismatched cycle and week')""",
+                    (second_cycle, week_id))
+
     def test_iso_week_targets_goal_types_and_cycle_references(self):
         with connect(FRESH_DB) as conn:
             cycle = self.cycle(conn)
@@ -163,10 +179,21 @@ class PlanningSchema(unittest.TestCase):
                 RETURNING id""").fetchone()[0]
             with self.assertRaises(errors.InvalidParameterValue):
                 conn.execute("UPDATE planning_private.training_goals SET timezone='Europe/Paris' WHERE id=%s", (goal,))
-            with self.assertRaises(errors.ForeignKeyViolation):
+            cycle_fk_count = conn.execute("""
+                SELECT count(*) FROM pg_catalog.pg_constraint
+                WHERE conrelid='planning_private.planned_sessions'::regclass
+                  AND confrelid='planning_private.plan_cycles'::regclass
+                  AND contype='f'
+            """).fetchone()[0]
+            self.assertEqual(cycle_fk_count, 1, "The planned-session cycle foreign key must remain installed")
+            missing_cycle = "00000000-0000-0000-0000-000000000099"
+            with self.assertRaises(errors.InvalidParameterValue):
                 conn.execute("""INSERT INTO planning_private.planned_sessions
                     (cycle_id,session_date,sport,session_type,title)
-                    VALUES ('00000000-0000-0000-0000-000000000099',DATE '2026-01-12','running','easy','Missing cycle')""")
+                    VALUES (%s,DATE '2026-01-12','running','easy','Missing cycle')""", (missing_cycle,))
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM planning_private.planned_sessions WHERE cycle_id=%s", (missing_cycle,),
+            ).fetchone()[0], 0, "A session with a nonexistent cycle must never persist")
 
     def test_revision_link_cardinality_and_event_log(self):
         with connect(UPGRADE_DB) as conn:
@@ -188,8 +215,30 @@ class PlanningSchema(unittest.TestCase):
             conn.execute("UPDATE planning_private.session_activity_links SET unlinked_at=clock_timestamp() WHERE id=%s", (link,))
             conn.execute("""INSERT INTO planning_private.session_activity_links(session_id,activity_id)
                 VALUES (%s,%s)""", (second, SYNTHETIC_ACTIVITY))
+            # DELETE against an empty table is a harmless no-op: the append-only
+            # contract protects existing events from mutation, not inert SQL.
+            with connect(FRESH_DB) as empty_conn:
+                empty_delete = empty_conn.execute("DELETE FROM planning_private.plan_change_events")
+                self.assertEqual(empty_delete.rowcount, 0)
+
+            event_id = conn.execute("""INSERT INTO planning_private.plan_change_events
+                (entity_kind,entity_id,revision,event_kind)
+                VALUES ('session',%s,1,'created') RETURNING id""", (first,)).fetchone()[0]
+            event_before = conn.execute("""SELECT entity_kind,entity_id,revision,event_kind
+                FROM planning_private.plan_change_events WHERE id=%s""", (event_id,)).fetchone()
             with self.assertRaises(errors.ObjectNotInPrerequisiteState):
-                conn.execute("DELETE FROM planning_private.plan_change_events")
+                conn.execute("UPDATE planning_private.plan_change_events SET event_kind='edited' WHERE id=%s", (event_id,))
+            self.assertEqual(conn.execute("""SELECT entity_kind,entity_id,revision,event_kind
+                FROM planning_private.plan_change_events WHERE id=%s""", (event_id,)).fetchone(), event_before)
+            with self.assertRaises(errors.ObjectNotInPrerequisiteState):
+                conn.execute("DELETE FROM planning_private.plan_change_events WHERE id=%s", (event_id,))
+            self.assertEqual(conn.execute("""SELECT entity_kind,entity_id,revision,event_kind
+                FROM planning_private.plan_change_events WHERE id=%s""", (event_id,)).fetchone(), event_before)
+            with self.assertRaises(errors.ObjectNotInPrerequisiteState):
+                conn.execute("TRUNCATE planning_private.plan_change_events")
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM planning_private.plan_change_events WHERE id=%s", (event_id,),
+            ).fetchone()[0], 1, "TRUNCATE must not remove the existing event")
 
     def test_upgrade_archive_row_unchanged_by_planning_writes(self):
         with connect(UPGRADE_DB) as conn:
