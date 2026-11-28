@@ -784,3 +784,88 @@
 @media (prefers-reduced-motion: reduce) {
   .v4-sidebar, .v4-more-chevron { transition: none; }
 }
+
+/* Adaptive coaching workspace · offline-only V4 MVP */
+.coach-workspace { display: grid; gap: 18px; color: var(--text-primary); }
+.coach-demo-banner { display: flex; align-items: center; gap: 12px; border: 1px solid color-mix(in srgb, var(--state-warning) 42%, var(--border-subtle)); border-radius: 13px; padding: 12px 15px; background: color-mix(in srgb, var(--state-warning) 8%, var(--surface-panel)); }
+.coach-demo-banner > svg { flex: 0 0 auto; color: var(--state-warning); }
+.coach-demo-banner > div { display: grid; gap: 2px; flex: 1; }
+.coach-demo-banner > div span, .coach-demo-banner > span { color: var(--text-secondary); font-size: 12px; }
+.coach-demo-banner > span { font-variant-numeric: tabular-nums; }
+.coach-workspace-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.coach-workspace-heading h2 { margin: 5px 0; font-size: clamp(23px, 3vw, 32px); letter-spacing: -.035em; }
+.coach-workspace-heading p { max-width: 720px; margin: 0; color: var(--text-secondary); line-height: 1.55; }
+.coach-workspace-heading label { display: grid; gap: 6px; min-width: 210px; color: var(--text-secondary); font-size: 13px; }
+.coach-workspace-heading select { min-height: 42px; border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0 11px; color: var(--text-primary); background: var(--surface-panel); font: inherit; }
+.coach-scenario-note { display: flex; align-items: flex-start; gap: 8px; margin: -3px 0 0; color: var(--text-secondary); font-size: 13px; }
+.coach-scenario-note svg { flex: 0 0 auto; }
+.coach-assessment-grid { display: grid; grid-template-columns: minmax(270px, .9fr) minmax(0, 1.35fr); align-items: start; gap: 16px; }
+.coach-current, .coach-recommendation { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 16px; background: var(--surface-panel); box-shadow: var(--shadow-panel); }
+.coach-current { padding: 20px; }
+.coach-current > header, .coach-recommendation-heading { display: flex; align-items: center; gap: 12px; }
+.coach-section-index { display: grid; flex: 0 0 34px; width: 34px; height: 34px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle)); border-radius: 10px; color: var(--accent-primary); font-size: 12px; font-weight: 750; }
+.coach-current h3, .coach-recommendation h3 { margin: 0; font-size: 17px; }
+.coach-current header p, .coach-recommendation-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; }
+.coach-current > p { margin: 18px 0; line-height: 1.55; }
+.coach-current dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.coach-current dl div { border: 1px solid var(--border-subtle); border-radius: 11px; padding: 10px; background: var(--surface-elevated); }
+.coach-current dt { min-height: 34px; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+.coach-current dd { margin: 5px 0 0; font-size: 23px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.coach-context { margin: 17px 0; border-left: 2px solid var(--accent-primary); padding: 2px 0 2px 12px; }
+.coach-current h4, .coach-evidence-list h4 { margin: 0 0 7px; font-size: 14px; }
+.coach-context p { margin: 5px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.coach-session-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.coach-session-list li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 3px 8px; border-top: 1px solid var(--border-subtle); padding: 8px 0; font-size: 12px; }
+.coach-session-list li > span:last-child { grid-column: 2; }
+.coach-session-list li > span:first-child { color: var(--text-secondary); }
+.coach-session-list .is-complete { color: var(--state-success); }
+.coach-session-list .is-missed { color: var(--state-warning); }
+.coach-session-list .is-uncertain { color: var(--text-secondary); }
+.coach-recommendation { overflow: hidden; }
+.coach-recommendation-heading { padding: 17px 19px; border-bottom: 1px solid var(--border-subtle); }
+.coach-recommendation-heading > div { flex: 1; }
+.coach-recommendation-heading > button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--border-subtle); border-radius: 10px; color: var(--text-secondary); background: var(--surface-elevated); cursor: pointer; }
+.coach-proposal { padding: 19px; }
+.coach-proposal > header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.coach-decision-badge, .coach-severity { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-subtle); border-radius: 999px; padding: 5px 9px; font-size: 12px; }
+.coach-decision-badge { color: var(--accent-primary); }
+.coach-severity { color: var(--text-secondary); }
+.coach-proposal h3 { margin: 14px 0 7px; font-size: 21px; letter-spacing: -.02em; }
+.coach-proposal > p { margin: 0; color: var(--text-secondary); line-height: 1.58; }
+.coach-reason-codes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.coach-reason-codes code { border-radius: 6px; padding: 4px 6px; color: var(--text-secondary); background: var(--surface-elevated); font-size: 11px; }
+.coach-before-after { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); align-items: center; gap: 8px; margin: 17px 0; }
+.coach-before-after > div { display: grid; gap: 5px; min-width: 0; border: 1px solid var(--border-subtle); border-radius: 12px; padding: 12px; background: var(--surface-elevated); }
+.coach-before-after small { color: var(--text-secondary); font-size: 11px; }
+.coach-before-after strong { overflow-wrap: anywhere; }
+.coach-before-after span { color: var(--text-secondary); font-size: 12px; }
+.coach-before-after > span { text-align: center; color: var(--accent-primary); }
+.coach-evidence-list { margin-top: 16px; }
+.coach-evidence { display: grid; gap: 4px; border-top: 1px solid var(--border-subtle); padding: 9px 0; }
+.coach-evidence b { font-size: 12px; }
+.coach-evidence span { line-height: 1.45; }
+.coach-evidence small { color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.coach-alternatives { display: grid; gap: 5px; margin: 9px 0 0; padding-left: 19px; color: var(--text-secondary); font-size: 13px; }
+.coach-simulated-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 17px; border-top: 1px solid var(--border-subtle); padding-top: 14px; }
+.coach-simulated-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0 12px; color: var(--text-primary); background: var(--surface-elevated); cursor: pointer; font: inherit; }
+.coach-simulated-actions button:disabled { opacity: .55; cursor: default; }
+.coach-simulated-actions span { width: 100%; color: var(--text-secondary); font-size: 12px; }
+.coach-method { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 13px 16px; color: var(--text-secondary); background: var(--surface-panel); }
+.coach-method summary { color: var(--text-primary); cursor: pointer; font-weight: 650; }
+.coach-method ul { display: grid; gap: 6px; line-height: 1.5; }
+.coach-method p { line-height: 1.5; }
+@media (max-width: 900px) { .coach-assessment-grid { grid-template-columns: 1fr; } }
+@media (max-width: 650px) {
+  .coach-workspace { gap: 13px; }
+  .coach-demo-banner { align-items: flex-start; padding: 10px; }
+  .coach-demo-banner > span { display: none; }
+  .coach-workspace-heading { align-items: stretch; flex-direction: column; }
+  .coach-workspace-heading label { min-width: 0; }
+  .coach-current, .coach-proposal { padding: 14px; }
+  .coach-current dl { gap: 5px; }
+  .coach-current dl div { padding: 7px; }
+  .coach-current dt { min-height: 48px; font-size: 11px; }
+  .coach-current dd { font-size: 20px; }
+  .coach-before-after { grid-template-columns: 1fr; }
+  .coach-before-after > span { transform: rotate(90deg); }
+}

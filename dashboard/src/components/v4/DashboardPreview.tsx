@@ -1,4 +1,4 @@
-import { Activity, BarChart3, CalendarDays, Gauge, HeartPulse, LayoutDashboard, Moon, Target, TrendingUp } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, ClipboardCheck, Gauge, HeartPulse, LayoutDashboard, Moon, Target, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 import type { ActivityRow, DailyRow, Period } from '../../analytics/dates';
 import type { LoadPoint } from '../../charts';
@@ -6,6 +6,7 @@ import { DataState } from './DataState';
 import { AppShell } from './AppShell';
 import { DashboardHome } from './DashboardHome';
 import { GoalCenterPreview, PerformanceLabPreview, WeeklyProgressPreview } from './AdvancedVisualizations';
+import { CoachWorkspacePreview } from './CoachWorkspacePreview';
 
 const period: Period = { start: '2025-01-06', end: '2025-01-12' };
 const activities: ActivityRow[] = [
@@ -31,6 +32,7 @@ const items = [
   { id: 'goal-center', label: 'Goal Center', icon: Target, preview: true },
   { id: 'weekly-progress', label: 'Progresso settimanale', icon: BarChart3, preview: true },
   { id: 'performance-lab', label: 'Performance Lab', icon: TrendingUp, preview: true },
+  { id: 'coach', label: 'Coach · Analisi', icon: ClipboardCheck, preview: true },
   { id: 'activities', label: 'Attività', icon: Activity },
   { id: 'load', label: 'Training Load', icon: BarChart3 }, { id: 'sleep', label: 'Sonno', icon: Moon },
 ];
@@ -49,6 +51,7 @@ export function DashboardPreview() {
       : active === 'goal-center' ? <GoalCenterPreview/>
       : active === 'weekly-progress' ? <WeeklyProgressPreview/>
       : active === 'performance-lab' ? <PerformanceLabPreview/>
+      : active === 'coach' ? <CoachWorkspacePreview/>
       : <section className="v4-preview-placeholder"><DataState kind="empty" title={`${items.find(item => item.id === active)?.label} · anteprima`}>Sezione dimostrativa non collegata a servizi o account. Le serie sintetiche sono disponibili nelle sezioni Goal Center, Progresso settimanale e Performance Lab.</DataState><button type="button" onClick={() => setActive('home')}>Torna alla Home</button></section>}
     </div>
   </AppShell>;
