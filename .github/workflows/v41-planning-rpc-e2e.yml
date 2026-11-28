@@ -127,7 +127,8 @@ jobs:
           umask 077
           cd "$GCH_SUPABASE_DIR"
           set +e
-          SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" SUPABASE_USE_SLIM_IMAGES=false \
+          env -u SUPABASE_INTERNAL_IMAGE_REGISTRY \
+            SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" SUPABASE_USE_SLIM_IMAGES=false \
             supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit \
             >/dev/null 2>&1
           exit_code=$?
@@ -147,15 +148,47 @@ jobs:
           test "${#ids[@]}" -eq 4
           postgres_id=""
           postgres_ok=0; auth_ok=0; rest_ok=0; kong_ok=0; running=0
+          image_slot=0
+          log_safe_image_ref() {
+            local ref="$1" name tag first registry repository
+            # Accept only a tagged Docker reference with conservative repository syntax.
+            # Never echo the raw value: Docker references can contain userinfo or other data.
+            if [[ ! "$ref" =~ ^[A-Za-z0-9./:_-]+$ || "$ref" == *".."* || "$ref" == */ ]]; then
+              printf 'phase=container_identity category=malformed_image_reference image_ref=redacted\n'
+              return 1
+            fi
+            name="${ref%:*}"
+            tag="${ref##*:}"
+            if [[ "$name" == "$ref" || ! "$tag" =~ ^v?[0-9]+([._-][A-Za-z0-9]+)*$ ]]; then
+              printf 'phase=container_identity category=malformed_image_reference image_ref=redacted\n'
+              return 1
+            fi
+            first="${name%%/*}"
+            if [[ "$name" == */* && ( "$first" == *.* || "$first" == *:* || "$first" == localhost ) ]]; then
+              registry="$first"
+              repository="${name#*/}"
+            else
+              registry=docker.io
+              repository="$name"
+            fi
+            if [[ ! "$registry" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]{1,5})?$ || ! "$repository" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$ ]]; then
+              printf 'phase=container_identity category=malformed_image_reference image_ref=redacted\n'
+              return 1
+            fi
+            printf 'phase=container_identity category=image_observed slot=%s registry=%s repository=%s version=%s\n' \
+              "$image_slot" "$registry" "$repository" "$tag"
+          }
           for id in "${ids[@]}"; do
+            image_slot=$((image_slot + 1))
             test "$(docker inspect --format '{{.State.Status}}' "$id")" = running && running=$((running + 1))
             image="$(docker inspect --format '{{.Config.Image}}' "$id")"
+            log_safe_image_ref "$image" || exit 1
             case "$image" in
-              public.ecr.aws/supabase/postgres:17.12.0.002) postgres_ok=$((postgres_ok + 1)); postgres_id="$id" ;;
-              public.ecr.aws/supabase/gotrue:v2.198.0) auth_ok=$((auth_ok + 1)) ;;
-              public.ecr.aws/supabase/postgrest:v16.6) rest_ok=$((rest_ok + 1)) ;;
-              kong:2.8.1|public.ecr.aws/supabase/kong:2.8.1) kong_ok=$((kong_ok + 1)) ;;
-              *) echo 'phase=container_identity category=unexpected_image'; exit 1 ;;
+              public.ecr.aws/supabase/postgres:17.12.0.002|ghcr.io/supabase/postgres:17.12.0.002|supabase/postgres:17.12.0.002) postgres_ok=$((postgres_ok + 1)); postgres_id="$id" ;;
+              public.ecr.aws/supabase/gotrue:v2.198.0|ghcr.io/supabase/gotrue:v2.198.0|supabase/gotrue:v2.198.0) auth_ok=$((auth_ok + 1)) ;;
+              public.ecr.aws/supabase/postgrest:v16.6|ghcr.io/supabase/postgrest:v16.6|postgrest/postgrest:v16.6) rest_ok=$((rest_ok + 1)) ;;
+              public.ecr.aws/supabase/kong:2.8.1|ghcr.io/supabase/kong:2.8.1|library/kong:2.8.1) kong_ok=$((kong_ok + 1)) ;;
+              *) printf 'phase=container_identity category=unexpected_image slot=%s; image_ref_logged_above=true\n' "$image_slot"; exit 1 ;;
             esac
             docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{printf "%s\n" $network.NetworkID}}{{end}}' "$id" | grep -Fxq "$GCH_SUPABASE_NETWORK_ID"
             ports="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$id")"

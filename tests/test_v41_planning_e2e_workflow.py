@@ -41,10 +41,55 @@ class PlanningE2ESafety(unittest.TestCase):
         self.assertIn("cleanup_failed=0", self.workflow)
         self.assertIn("category=failed", self.workflow)
         self.assertIn("com.docker.network.bridge.host_binding_ipv4=127.0.0.1", self.workflow)
+        self.assertIn("env -u SUPABASE_INTERNAL_IMAGE_REGISTRY", self.workflow)
         self.assertIn('test "${#ids[@]}" -eq 4', self.workflow)
         self.assertNotRegex(self.workflow, r"\$\{\{\s*secrets\.")
         for forbidden in ("supabase link", "supabase db push", "supabase.co", "GARMIN_", "NAS_", "service_role"):
             self.assertNotIn(forbidden.lower(), self.workflow.lower())
+
+    def test_cli_340_exact_registry_fallbacks_are_allowlisted(self):
+        # Supabase CLI 3.4.0 resolves each upstream Dockerfile image through, in order,
+        # the public ECR mirror, the Supabase GHCR mirror, then its source registry ref.
+        # Every accepted ref therefore keeps the same exact manifest tag.
+        refs = (
+            "public.ecr.aws/supabase/postgres:17.12.0.002",
+            "ghcr.io/supabase/postgres:17.12.0.002",
+            "supabase/postgres:17.12.0.002",
+            "public.ecr.aws/supabase/gotrue:v2.198.0",
+            "ghcr.io/supabase/gotrue:v2.198.0",
+            "supabase/gotrue:v2.198.0",
+            "public.ecr.aws/supabase/postgrest:v16.6",
+            "ghcr.io/supabase/postgrest:v16.6",
+            "postgrest/postgrest:v16.6",
+            "public.ecr.aws/supabase/kong:2.8.1",
+            "ghcr.io/supabase/kong:2.8.1",
+            "library/kong:2.8.1",
+        )
+        case_refs = re.findall(
+            r"(?m)^\s+([^\n]+)\) (?:postgres_ok|auth_ok|rest_ok|kong_ok)=",
+            self.workflow,
+        )
+        allowed = {ref for case in case_refs for ref in case.split("|")}
+        self.assertEqual(set(refs), allowed)
+
+    def test_unexpected_image_diagnostic_is_sanitized_and_fail_closed(self):
+        step = re.search(
+            r"(?ms)^      - name: Verify container identity, fixed images, isolated network and loopback ports\n(.*?)(?=^      - name:)",
+            self.workflow,
+        )
+        self.assertIsNotNone(step)
+        source = step.group(1)
+        self.assertIn("docker inspect --format '{{.Config.Image}}'", source)
+        self.assertIn("log_safe_image_ref \"$image\" || exit 1", source)
+        self.assertIn("category=malformed_image_reference image_ref=redacted", source)
+        self.assertIn("^v?[0-9]+([._-][A-Za-z0-9]+)*$", source)
+        self.assertIn("category=image_observed slot=%s registry=%s repository=%s version=%s", source)
+        self.assertIn("category=unexpected_image slot=%s; image_ref_logged_above=true", source)
+        self.assertLess(source.index("log_safe_image_ref \"$image\""), source.index("case \"$image\" in"))
+        # The diagnostic emits only parsed fields, never the raw .Config.Image or container env.
+        self.assertNotIn('printf "%s" "$ref"', source)
+        self.assertNotIn(".Config.Env", source)
+        self.assertNotIn("docker inspect", source[source.index("log_safe_image_ref()") : source.index("for id in")])
 
     def test_harness_restricts_local_identity_and_uses_ordered_migrations(self):
         for safe_check in (
