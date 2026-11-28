@@ -1,7 +1,9 @@
 # Garmin Coaching Hub V4 — MVP del motore di coaching adattivo
 
-**Stato:** MVP offline implementato; Gate B PostgreSQL V4.1 ancora **APERTO**  
-**Branch:** `feature/v4-visual-foundation`  
+**Stato:** MVP offline implementato; Gate B PostgreSQL V4.1 ancora **APERTO**
+
+**Branch:** `feature/v4-visual-foundation`
+
 **Workspace:** `D:\Repository\garmin-coaching-hub-v4`
 
 **Commit locali dell’implementazione:**
