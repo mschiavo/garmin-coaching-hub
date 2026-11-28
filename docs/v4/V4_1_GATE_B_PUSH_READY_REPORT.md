@@ -1,5 +1,33 @@
 # V4.1 SQL Gate B — report di preparazione trigger push
 
+## Addendum — diagnosi run 46071087729
+
+La run sul commit `3adeb9291cf4a1d016a4fbe67eeba1b84b5bac47` ha applicato la migration 0036 nel PostgreSQL effimero, dopo avere verificato l'identità del cluster. Il job ha riportato 4 test riusciti, 1 errore e 1 fallimento; il backup/restore è rimasto saltato perché il passo SQL precedente era fallito. Questa sessione non ha avviato nuove run.
+
+### Diagnosi e correzioni
+
+1. **Ciclo Planning inesistente.** `validate_session_period()` verifica il ciclo prima del controllo FK e solleva `InvalidParameterValue` (`22023`) se il ciclo non esiste. È una validazione contestuale intenzionale: produce un errore di dominio stabile per data/ciclo non validi. Il test ora si aspetta quell'errore, verifica nella catalogo PostgreSQL che la foreign key sessione→ciclo esista ancora e controlla che la sessione rifiutata non sia persistita. Sono aggiunti anche casi per una settimana abbinata correttamente e per la violazione della FK composita quando settimana e ciclo non corrispondono.
+2. **Registro append-only.** Il trigger `BEFORE UPDATE OR DELETE FOR EACH ROW` protegge righe esistenti; un `DELETE` su tabella vuota ha `rowcount = 0` e non invoca il trigger, senza mutare lo stato. Questo è coerente con ADR 6: niente hard-delete di eventi nel CRUD e nessuna purge automatica. Il test crea un evento sintetico e verifica che UPDATE e DELETE sulla riga esistente e TRUNCATE siano rifiutati e che l'evento resti integro. Verifica separatamente il `DELETE` vuoto come no-op consentito. Non è stato aggiunto un trigger DELETE statement-level perché il contratto protegge gli eventi persistiti, non vieta istruzioni inerti.
+
+**Migration 0036 invariata.** Le foreign key, i trigger esistenti e le ACL restano intatti; nessun privilegio è stato aggiunto. Le modifiche applicative sono limitate ai test SQL.
+
+### Test e gate
+
+| Verifica | Esito |
+|---|---|
+| `python -m py_compile tests/sql/v41_planning_contract.py tests/test_v41_sql_workflow.py` | PASS |
+| `python tests/test_v41_sql_workflow.py` | PASS — 5/5 controlli statici workflow |
+| `git diff --check` | PASS |
+| Test SQL `PlanningSchema` e `PlanningRestore` | NON ESEGUITI localmente: Docker, PostgreSQL, client `psql`/`pg_dump`/`pg_restore` e Psycopg non disponibili |
+| Backup/restore PostgreSQL | NON ESEGUITO localmente; nella run fallita precedente il passo restore era stato saltato |
+| Actionlint / Gitleaks | NON ESEGUITI: strumenti non disponibili localmente |
+
+Commit correttivo dei test: `595938788c8c2b24053a7d5080bf4ef1480f536f`. Il commit del presente aggiornamento documentale è riportato nell'handoff finale.
+
+**Gate B resta APERTO.** I test SQL corretti non sono stati eseguiti su PostgreSQL live. La chiusura richiede una nuova run effettiva che superi migrazione fresh/upgrade, ACL/RLS, riferimenti e vincoli, rollback atomico e backup/restore comparativo. Non avviare RPC o UI persistente Planning/Goal Center prima di quel risultato.
+
+Per il collaudo successivo, pubblicare solo dopo autorizzazione esplicita il commit correttivo sul branch V4: il trigger push filtrato eseguirà il workflow sui file del gate. Associare il risultato allo SHA esatto e verificare anche il riepilogo del restore; non considerare il Gate B superato se tale step non risulta `success`.
+
 ## Stato della consegna
 
 - Worktree: `D:\Repository\garmin-coaching-hub-v4`
