@@ -77,7 +77,7 @@ export function assessTraining(input: CoachingInput): TrainingAssessment {
   const coverageDates = new Map<string, CoverageEvidence>();
   let coverageConflict = false;
   for (const row of input.coverage) {
-    if (!isCivilDate(row.date) || !['available', 'partial', 'unknown', 'invalid'].includes(row.status)) coverageConflict = true;
+    if (!isCivilDate(row.date) || typeof row.source !== 'string' || !row.source || !['available', 'partial', 'unknown', 'invalid'].includes(row.status)) coverageConflict = true;
     const previous = coverageDates.get(row.date);
     if (previous && !sameCoverage(previous, row)) coverageConflict = true;
     coverageDates.set(row.date, row);
@@ -94,7 +94,8 @@ export function assessTraining(input: CoachingInput): TrainingAssessment {
     !['planned', 'completed', 'cancelled'].includes(w.status) ||
     (w.durationMinutes !== null && (!Number.isFinite(w.durationMinutes) || w.durationMinutes <= 0)));
   const cycleMismatch = !!input.cycle && workouts.rows.some(w => w.date < input.cycle!.start || w.date > input.cycle!.end);
-  const invalid = !validReference || !cycleValid || conflicts || badWorkout || cycleMismatch || coverageConflict || activityLinkConflict ||
+  const invalid = !validReference || !cycleValid || conflicts || badWorkout || cycleMismatch || coverageConflict ||
+    input.coverage.some(row => row.status === 'invalid') || activityLinkConflict ||
     !rulesValid ||
     (input.goal !== null && (!idPattern.test(input.goal.id) || !['distance', 'race', 'consistency'].includes(input.goal.kind) || typeof input.goal.unit !== 'string' ||
       (input.goal.target !== null && (!Number.isFinite(input.goal.target) || input.goal.target <= 0)) ||

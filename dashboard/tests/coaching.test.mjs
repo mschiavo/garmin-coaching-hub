@@ -107,6 +107,12 @@ test('equivalent coverage rows do not depend on object property order', () => {
   assert.equal(result.proposals[0].decision, 'maintain');
 });
 
+test('coverage evidence explicitly marked invalid yields an invalid abstention state', () => {
+  const result = assessTraining({ ...base, coverage: [{ date: '2026-11-23', status: 'invalid', source: 'synthetic invalidation' }] });
+  assert.equal(result.status, 'invalid');
+  assert.equal(result.proposals[0].decision, 'abstain');
+});
+
 test('civil-day windows stay stable through DST and candidates outside configured horizon are not changed', () => {
   const input = { ...base, referenceDate: '2026-03-29', cycle: { ...cycle, start: '2026-03-01', end: '2026-04-30' },
     workouts: [{ ...workouts[0], date: '2026-03-25' }, { ...workouts[1], date: '2026-03-27' }, { ...workouts[2], date: '2026-04-06' }],
