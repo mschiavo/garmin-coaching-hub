@@ -1,0 +1,229 @@
+name: V4.1 Planning RPC · ephemeral Supabase E2E
+
+on:
+  push:
+    branches:
+      - feature/v4-visual-foundation
+    paths:
+      - .github/workflows/v41-planning-rpc-e2e.yml
+      - tools/local_supabase_e2e.py
+      - tools/local_supabase_planning_e2e.py
+      - tools/staging_fixture.py
+      - supabase/bootstrap.sql
+      - supabase/dashboard.sql
+      - supabase/migrations/0034_data_intelligence.sql
+      - supabase/migrations/0035_staging_reliability.sql
+      - supabase/migrations/0036_v41_planning.sql
+      - supabase/migrations/0037_v41_planning_rpc.sql
+      - tests/test_v41_planning_e2e_workflow.py
+      - tests/test_v41_planning_rpc_contract.py
+      - tests/sql/v41_planning_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v41-planning-rpc-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  planning-rpc-e2e:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up fixed Python runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.8'
+
+      - name: Install pinned Supabase test dependencies
+        run: python -m pip install --disable-pip-version-check --no-input 'psycopg[binary]==3.2.6' 'requests==2.32.3'
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3
+        with:
+          version: 3.4.0
+
+      - name: Check workflow isolation
+        run: |
+          python tests/test_v41_planning_e2e_workflow.py
+          python tests/test_v41_planning_rpc_contract.py
+
+      - name: Create isolated local Supabase configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GCH_SUPABASE_DIR="$RUNNER_TEMP/gch-v41-planning-rpc"
+          mkdir -m 700 -p "$GCH_SUPABASE_DIR/supabase"
+          cat > "$GCH_SUPABASE_DIR/supabase/config.toml" <<'TOML'
+          project_id = "gch-v41-planning-rpc-e2e"
+
+          [api]
+          enabled = true
+          port = 54331
+          schemas = ["public", "graphql_public"]
+          extra_search_path = ["public", "extensions"]
+          max_rows = 1000
+
+          [db]
+          port = 54332
+          shadow_port = 54330
+          major_version = 17
+
+          [auth]
+          enabled = true
+          site_url = "http://127.0.0.1:4179"
+          additional_redirect_urls = ["http://127.0.0.1:4179"]
+          jwt_expiry = 3600
+          enable_signup = true
+
+          [auth.email]
+          enabled = true
+          double_confirm_changes = false
+          enable_confirmations = false
+
+          [realtime]
+          enabled = false
+
+          [studio]
+          enabled = false
+
+          [storage]
+          enabled = false
+
+          [analytics]
+          enabled = false
+          TOML
+          echo "GCH_SUPABASE_DIR=$GCH_SUPABASE_DIR" >> "$GITHUB_ENV"
+
+      - name: Create loopback-only isolated Docker bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          network_name="gch-v41-rpc-${GITHUB_RUN_ID}"
+          network_id="$(docker network create --driver bridge --label com.gch.v41.rpc=true \
+            --opt com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$network_name")"
+          {
+            echo "GCH_DOCKER_NETWORK_NAME=$network_name"
+            echo "GCH_SUPABASE_NETWORK_ID=$network_id"
+          } >> "$GITHUB_ENV"
+          test "$(docker network inspect --format '{{.Driver}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.gch.v41.rpc"}}' "$network_id")" = 'bridge|127.0.0.1|true'
+
+      - name: Validate pinned local Supabase configuration
+        run: cd "$GCH_SUPABASE_DIR" && supabase config validate
+
+      - name: Start ephemeral Supabase services
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cd "$GCH_SUPABASE_DIR"
+          set +e
+          SUPABASE_NETWORK_ID="$GCH_SUPABASE_NETWORK_ID" SUPABASE_USE_SLIM_IMAGES=false \
+            supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,postgres-meta,mailpit \
+            >/dev/null 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            printf 'phase=startup category=failed exit_code=%s; CLI output suppressed to avoid logging generated local credentials\n' "$exit_code"
+            exit "$exit_code"
+          fi
+          echo 'phase=startup category=success exit_code=0'
+
+      - name: Verify container identity, fixed images, isolated network and loopback ports
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ids < <(docker ps -a --filter 'label=com.supabase.cli.project=gch-v41-planning-rpc-e2e' --format '{{.ID}}')
+          test "${#ids[@]}" -eq 4
+          postgres_id=""
+          postgres_ok=0; auth_ok=0; rest_ok=0; kong_ok=0; running=0
+          for id in "${ids[@]}"; do
+            test "$(docker inspect --format '{{.State.Status}}' "$id")" = running && running=$((running + 1))
+            image="$(docker inspect --format '{{.Config.Image}}' "$id")"
+            case "$image" in
+              public.ecr.aws/supabase/postgres:17.12.0.002) postgres_ok=$((postgres_ok + 1)); postgres_id="$id" ;;
+              public.ecr.aws/supabase/gotrue:v2.198.0) auth_ok=$((auth_ok + 1)) ;;
+              public.ecr.aws/supabase/postgrest:v16.6) rest_ok=$((rest_ok + 1)) ;;
+              kong:2.8.1|public.ecr.aws/supabase/kong:2.8.1) kong_ok=$((kong_ok + 1)) ;;
+              *) echo 'phase=container_identity category=unexpected_image'; exit 1 ;;
+            esac
+            docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{printf "%s\n" $network.NetworkID}}{{end}}' "$id" | grep -Fxq "$GCH_SUPABASE_NETWORK_ID"
+            ports="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$id")"
+            printf '%s\n' "$ports" | jq -e 'to_entries | all(.[]; .value == null or all(.value[]; .HostIp == "127.0.0.1"))' >/dev/null
+          done
+          test "$running" -eq 4 && test "$postgres_ok" -eq 1 && test "$auth_ok" -eq 1 && test "$rest_ok" -eq 1 && test "$kong_ok" -eq 1
+          system_id="$(docker exec "$postgres_id" psql -X -U postgres -d postgres -Atqc 'SELECT system_identifier::text FROM pg_catalog.pg_control_system()')"
+          [[ "$system_id" =~ ^[1-9][0-9]{0,19}$ ]]
+          test "${#system_id}" -le 20
+          python -c 'import sys; raise SystemExit(int(sys.argv[1]) > 18446744073709551615)' "$system_id"
+          {
+            echo "GCH_E2E_EXPECTED_SYSTEM_ID=$system_id"
+            echo "GCH_E2E_POSTGRES_CONTAINER_ID=$postgres_id"
+          } >> "$GITHUB_ENV"
+          printf 'phase=container_identity category=success count=4 running=4 postgres=1 auth=1 postgrest=1 kong=1 network=isolated loopback=true cluster_id=validated\n'
+
+      - name: Install SQL and exercise Auth, allowlist, RPC persistence and account switching
+        run: python -m tools.local_supabase_planning_e2e
+
+      - name: Stop ephemeral stack and remove synthetic credentials
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          cleanup_failed=0
+          project_label='com.supabase.cli.project=gch-v41-planning-rpc-e2e'
+          if [ -n "${GCH_SUPABASE_DIR:-}" ]; then
+            if [ "$GCH_SUPABASE_DIR" != "$RUNNER_TEMP/gch-v41-planning-rpc" ]; then
+              echo 'phase=cleanup category=unsafe_project_path'
+              cleanup_failed=1
+            elif [ -d "$GCH_SUPABASE_DIR" ]; then
+              mapfile -t remaining < <(docker ps -aq --filter "label=$project_label")
+              if [ "${#remaining[@]}" -gt 0 ]; then
+                if ! (cd "$GCH_SUPABASE_DIR" && supabase stop --no-backup) >/dev/null 2>&1; then cleanup_failed=1; fi
+                mapfile -t remaining < <(docker ps -aq --filter "label=$project_label")
+                if [ "${#remaining[@]}" -gt 0 ]; then cleanup_failed=1; fi
+              fi
+            fi
+          fi
+          if [ -n "${GCH_DOCKER_NETWORK_NAME:-}" ]; then
+            network_check="$(docker network inspect --format '{{.Driver}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.gch.v41.rpc"}}' "$GCH_DOCKER_NETWORK_NAME" 2>/dev/null)"
+            if [ "$network_check" = 'bridge|127.0.0.1|true' ]; then
+              if ! docker network rm "$GCH_DOCKER_NETWORK_NAME" >/dev/null 2>&1; then cleanup_failed=1; fi
+            elif [ -n "$network_check" ]; then
+              echo 'phase=cleanup category=network_identity_mismatch'
+              cleanup_failed=1
+            fi
+          fi
+          if [ "${GCH_SUPABASE_DIR:-}" = "$RUNNER_TEMP/gch-v41-planning-rpc" ] && [ -e "$GCH_SUPABASE_DIR" ]; then
+            if ! rm -rf -- "$GCH_SUPABASE_DIR"; then cleanup_failed=1; fi
+          fi
+          if [ "$cleanup_failed" -ne 0 ]; then echo 'phase=cleanup category=failed'; exit 1; fi
+          echo 'Synthetic stack cleanup requested; runner teardown is the final isolation boundary.'
+
+      - name: Publish gate summary
+        if: always()
+        env:
+          TARGET: ${{ steps.target.outcome }}
+          RPC_E2E: ${{ job.status }}
+        run: |
+          {
+            echo '# V4.1 Planning RPC E2E'
+            echo "Commit testato: ${GITHUB_SHA}"
+            echo 'Ambiente: GitHub-hosted runner effimero, Supabase CLI 3.4.0, immagini container esatte, Auth/PostgREST locali.'
+            echo 'Nessun secret repository, servizio cloud, Garmin reale o NAS configurato.'
+            echo '| Gate | Esito |'
+            echo '|---|---|'
+            echo "| Identità stack, rete, immagini e loopback | $TARGET |"
+            echo "| SQL, RPC, Auth allowlist, revisioni, persistenza e cambio account | $RPC_E2E |"
+            echo '| Cleanup | eseguito con if: always() |'
+          } >> "$GITHUB_STEP_SUMMARY"

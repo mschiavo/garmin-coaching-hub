@@ -21,7 +21,9 @@ UPGRADE_DB = "gch_v41_planning_upgrade"
 ATOMIC_DB = "gch_v41_planning_atomic"
 RESTORE_DB = "gch_v41_planning_restore"
 MIGRATION = ROOT / "supabase/migrations/0036_v41_planning.sql"
+RPC_MIGRATION = ROOT / "supabase/migrations/0037_v41_planning_rpc.sql"
 SYNTHETIC_ACTIVITY = 9007199254800123
+DENIED = "00000000-0000-0000-0000-000000000002"
 
 
 def connect(database: str):
@@ -71,6 +73,7 @@ class PlanningSchema(unittest.TestCase):
                 apply(conn, "supabase/migrations/0035_staging_reliability.sql")
                 if database != ATOMIC_DB:
                     apply(conn, MIGRATION.relative_to(ROOT).as_posix())
+                    apply(conn, RPC_MIGRATION.relative_to(ROOT).as_posix())
 
         # Force an error before COMMIT and prove the migration is atomic on a
         # separate disposable database with the same 0035 baseline.
@@ -88,6 +91,22 @@ class PlanningSchema(unittest.TestCase):
             conn.execute("ROLLBACK")
             if conn.execute("SELECT to_regnamespace('planning_private')").fetchone()[0] is not None:
                 raise AssertionError("Failed migration left schema changes behind")
+            apply(conn, MIGRATION.relative_to(ROOT).as_posix())
+            rpc_source = RPC_MIGRATION.read_text(encoding="utf-8")
+            broken_rpc = rpc_source.replace("COMMIT;", "SELECT 1/0; COMMIT;")
+            if broken_rpc == rpc_source:
+                raise AssertionError("RPC migration atomicity injection point missing")
+            try:
+                conn.execute(broken_rpc)
+            except errors.DivisionByZero:
+                pass
+            else:
+                raise AssertionError("Injected RPC migration failure was not raised")
+            conn.execute("ROLLBACK")
+            if conn.execute("SELECT to_regclass('planning_private.api_state')").fetchone()[0] is not None:
+                raise AssertionError("Failed RPC migration left API state behind")
+            if conn.execute("SELECT to_regprocedure('public.planning_create_cycle_v1(text,date,date,text,text)')").fetchone()[0] is not None:
+                raise AssertionError("Failed RPC migration left functions behind")
 
     def cycle(self, conn, start="2026-01-05", end="2026-02-01", timezone="Europe/Rome"):
         return conn.execute("""
@@ -111,7 +130,7 @@ class PlanningSchema(unittest.TestCase):
                     WHERE table_schema='planning_private'
                 """).fetchall()}
                 self.assertEqual(names, {"plan_cycles", "plan_weeks", "planned_sessions", "training_goals",
-                                         "goal_milestones", "session_activity_links", "plan_change_events"})
+                                         "goal_milestones", "session_activity_links", "plan_change_events", "api_state"})
                 self.assertFalse(conn.execute("SELECT has_schema_privilege('authenticated','planning_private','USAGE')").fetchone()[0])
                 self.assertFalse(conn.execute("SELECT has_schema_privilege('anon','planning_private','USAGE')").fetchone()[0])
                 secured = conn.execute("""
@@ -120,7 +139,7 @@ class PlanningSchema(unittest.TestCase):
                     WHERE n.nspname='planning_private' AND c.relkind='r'
                       AND c.relrowsecurity AND c.relforcerowsecurity
                 """).fetchone()[0]
-                self.assertEqual(secured, 7)
+                self.assertEqual(secured, 8)
         with connect(UPGRADE_DB) as conn:
             self.assertEqual(conn.execute("SELECT raw_data->>'synthetic' FROM coaching.garmin_activities WHERE activity_id=%s",
                                           (SYNTHETIC_ACTIVITY,)).fetchone()[0], "true")
@@ -251,6 +270,153 @@ class PlanningSchema(unittest.TestCase):
             self.assertEqual(after, before)
 
 
+class PlanningRPC(unittest.TestCase):
+    @staticmethod
+    def login_as(conn, user_id):
+        conn.execute("SET ROLE authenticated")
+        conn.execute("SELECT pg_catalog.set_config('request.jwt.claim.sub',%s,false)", (user_id,))
+
+    def test_rpc_acl_and_private_schema_are_closed(self):
+        with connect(FRESH_DB) as conn:
+            expected = {
+                "planning_list_cycles_v1", "planning_get_cycle_v1", "planning_create_cycle_v1",
+                "planning_update_cycle_v1", "planning_cancel_cycle_v1", "planning_list_sessions_v1",
+                "planning_get_session_v1", "planning_create_session_v1", "planning_update_session_v1",
+                "planning_reschedule_session_v1", "planning_set_session_status_v1",
+            }
+            names = {row[0] for row in conn.execute("""
+                SELECT p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                WHERE n.nspname='public' AND p.proname LIKE 'planning_%_v1'
+            """).fetchall()}
+            self.assertEqual(names, expected)
+            self.assertFalse(conn.execute("SELECT has_schema_privilege('authenticated','planning_private','USAGE')").fetchone()[0])
+            self.assertFalse(conn.execute("SELECT has_function_privilege('anon','public.planning_list_cycles_v1(text,date,date,integer,text)','EXECUTE')").fetchone()[0])
+            self.assertTrue(conn.execute("SELECT has_function_privilege('authenticated','public.planning_list_cycles_v1(text,date,date,integer,text)','EXECUTE')").fetchone()[0])
+            with self.assertRaises(errors.InsufficientPrivilege):
+                conn.execute("SET ROLE anon")
+                conn.execute("SELECT public.planning_list_cycles_v1()")
+
+    def test_v341_legacy_and_v2_rpc_contracts_remain_installed(self):
+        with connect(FRESH_DB) as conn:
+            self.assertEqual(conn.execute("SELECT schema_version FROM coaching.intelligence_state WHERE singleton").fetchone()[0], 34)
+            for signature in (
+                "public.dashboard_data()", "public.dashboard_metadata_v2(text,text)",
+                "public.dashboard_activities_v2(text,text,text,integer,text,text)",
+                "public.dashboard_daily_v2(text,text,text,integer,text)",
+                "public.dashboard_coverage_v2(text,text,text,integer,text,text)",
+            ):
+                self.assertIsNotNone(conn.execute("SELECT pg_catalog.to_regprocedure(%s)", (signature,)).fetchone()[0], signature)
+
+    def test_auth_allowlist_and_account_switch_are_server_enforced(self):
+        with connect(FRESH_DB) as conn:
+            self.login_as(conn, ALLOWED)
+            allowed = conn.execute("SELECT public.planning_create_cycle_v1('Allowed plan','2026-03-02','2026-03-29','Europe/Rome','draft')").fetchone()[0]
+            conn.execute("SELECT pg_catalog.set_config('request.jwt.claim.sub',%s,false)", (DENIED,))
+            for query, params in (
+                ("SELECT public.planning_list_cycles_v1()", ()),
+                ("SELECT public.planning_get_cycle_v1(%s)", (allowed["cycle"]["id"],)),
+                ("SELECT public.planning_cancel_cycle_v1(%s,'1')", (allowed["cycle"]["id"],)),
+                ("SELECT public.planning_create_cycle_v1('Denied write','2026-03-30','2026-04-05','Europe/Rome','draft')", ()),
+                ("SELECT public.planning_get_cycle_v1('00000000-0000-0000-0000-000000000099')", ()),
+            ):
+                with self.assertRaises(errors.InsufficientPrivilege):
+                    conn.execute(query, params)
+            conn.execute("SELECT pg_catalog.set_config('request.jwt.claim.sub','',false)")
+            with self.assertRaises(errors.InsufficientPrivilege):
+                conn.execute("SELECT public.planning_list_cycles_v1()")
+            conn.execute("SELECT pg_catalog.set_config('request.jwt.claim.sub',%s,false)", (ALLOWED,))
+            self.assertEqual(conn.execute("SELECT public.planning_get_cycle_v1(%s)", (allowed["cycle"]["id"],)).fetchone()[0]["cycle"]["id"], allowed["cycle"]["id"])
+            conn.execute("RESET ROLE")
+            self.assertEqual(conn.execute("SELECT count(*) FROM planning_private.plan_cycles WHERE name='Denied write'").fetchone()[0], 0)
+
+    def test_cycle_session_persistence_history_and_revision_conflicts(self):
+        with connect(FRESH_DB) as conn:
+            self.login_as(conn, ALLOWED)
+            created = conn.execute("""
+                SELECT public.planning_create_cycle_v1('RPC cycle','2026-04-06','2026-05-03','Europe/Rome','draft')
+            """).fetchone()[0]
+            cycle_id = created["cycle"]["id"]
+            self.assertEqual(created["cycle"]["revision"], "1")
+            updated = conn.execute("SELECT public.planning_update_cycle_v1(%s,'1',%s::jsonb)",
+                                   (cycle_id, '{"name":"RPC cycle updated"}')).fetchone()[0]
+            self.assertEqual(updated["cycle"]["revision"], "2")
+            with self.assertRaises(errors.SerializationFailure):
+                conn.execute("SELECT public.planning_update_cycle_v1(%s,'1','{\"name\":\"stale\"}'::jsonb)", (cycle_id,))
+
+            session_result = conn.execute("""
+                SELECT public.planning_create_session_v1('2026-04-08','running','easy','RPC session',%s,
+                  '2026-04-06',0,5000,NULL,'synthetic description',NULL)
+            """, (cycle_id,)).fetchone()[0]
+            session = session_result["session"]
+            session_id = session["id"]
+            self.assertEqual(session["target_distance_m"], "5000.00")
+            self.assertEqual(session["week_start"], "2026-04-06")
+            self.assertEqual(session["description"], "synthetic description")
+            edited = conn.execute("SELECT public.planning_update_session_v1(%s,'1','{\"title\":\"Updated session\"}'::jsonb)",
+                                  (session_id,)).fetchone()[0]["session"]
+            self.assertEqual(edited["revision"], "2")
+            with self.assertRaises(errors.SerializationFailure):
+                conn.execute("SELECT public.planning_update_session_v1(%s,'1','{\"title\":\"stale\"}'::jsonb)", (session_id,))
+            moved = conn.execute("SELECT public.planning_reschedule_session_v1(%s,'2','2026-04-09')", (session_id,)).fetchone()[0]["session"]
+            self.assertEqual(moved["session_date"], "2026-04-09")
+            cancelled = conn.execute("SELECT public.planning_set_session_status_v1(%s,'3','cancelled','manual')", (session_id,)).fetchone()[0]["session"]
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertEqual(conn.execute("SELECT public.planning_get_session_v1(%s)", (session_id,)).fetchone()[0]["revision"], "4")
+            cycle = conn.execute("SELECT public.planning_get_cycle_v1(%s)", (cycle_id,)).fetchone()[0]
+            self.assertEqual(cycle["cycle"]["revision"], "2")
+            self.assertEqual(len(cycle["sessions"]), 1)
+            extra = conn.execute("""
+                SELECT public.planning_create_session_v1('2026-04-10','running','tempo','Manual completion',%s)
+            """, (cycle_id,)).fetchone()[0]["session"]
+            completed = conn.execute("SELECT public.planning_set_session_status_v1(%s,'1','completed','manual')",
+                                     (extra["id"],)).fetchone()[0]["session"]
+            self.assertEqual(completed["completion_kind"], "manual")
+            with self.assertRaises(errors.InvalidParameterValue):
+                conn.execute("SELECT public.planning_set_session_status_v1(%s,'2','planned','verified')", (extra["id"],))
+            conn.execute("RESET ROLE")
+            self.assertEqual(conn.execute("SELECT count(*) FROM planning_private.plan_change_events WHERE entity_id IN (%s,%s)",
+                                          (cycle_id, session_id)).fetchone()[0], 6)
+
+    def test_pagination_filters_and_stale_snapshot_are_atomic(self):
+        with connect(FRESH_DB) as conn:
+            self.login_as(conn, ALLOWED)
+            first = conn.execute("SELECT public.planning_create_cycle_v1('Page one','2026-06-01','2026-06-07','UTC','draft')").fetchone()[0]["cycle"]["id"]
+            conn.execute("SELECT public.planning_create_cycle_v1('Page two','2026-06-08','2026-06-14','UTC','draft')")
+            page = conn.execute("SELECT public.planning_list_cycles_v1(NULL,'2026-06-01','2026-06-30',1,NULL)").fetchone()[0]
+            self.assertEqual(page["count"], 2)
+            self.assertTrue(page["has_more"])
+            self.assertIsNotNone(page["next_cursor"])
+            second = conn.execute("SELECT public.planning_list_cycles_v1(NULL,'2026-06-01','2026-06-30',1,%s)", (page["next_cursor"],)).fetchone()[0]
+            self.assertFalse(second["has_more"])
+            self.assertEqual(len(second["rows"]), 1)
+            with self.assertRaises(errors.InvalidParameterValue):
+                conn.execute("SELECT public.planning_list_cycles_v1(NULL,NULL,NULL,101,NULL)")
+            conn.execute("SELECT public.planning_update_cycle_v1(%s,'1','{\"name\":\"changed\"}'::jsonb)", (first,))
+            with self.assertRaises(errors.SerializationFailure):
+                conn.execute("SELECT public.planning_list_cycles_v1(NULL,'2026-06-01','2026-06-30',1,%s)", (page["next_cursor"],))
+            conn.execute("RESET ROLE")
+
+    def test_invalid_mutation_inputs_do_not_persist_and_events_are_append_only(self):
+        with connect(FRESH_DB) as conn:
+            self.login_as(conn, ALLOWED)
+            with self.assertRaises(errors.InvalidParameterValue):
+                conn.execute("SELECT public.planning_create_cycle_v1('bad zone','2026-07-01','2026-07-07','Not/AZone','draft')")
+            with self.assertRaises(errors.InvalidParameterValue):
+                conn.execute("SELECT public.planning_create_cycle_v1('bad state','2026-07-01','2026-07-07','UTC','completed')")
+            created = conn.execute("SELECT public.planning_create_cycle_v1('Cancel me','2026-07-01','2026-07-07','UTC','draft')").fetchone()[0]
+            cycle_id = created["cycle"]["id"]
+            cancelled = conn.execute("SELECT public.planning_cancel_cycle_v1(%s,'1')", (cycle_id,)).fetchone()[0]
+            self.assertEqual(cancelled["cycle"]["status"], "cancelled")
+            conn.execute("RESET ROLE")
+            event_count = conn.execute("SELECT count(*) FROM planning_private.plan_change_events WHERE entity_id=%s", (cycle_id,)).fetchone()[0]
+            self.assertEqual(event_count, 2)
+            with self.assertRaises(errors.InvalidParameterValue):
+                conn.execute("SELECT public.planning_update_cycle_v1(%s,'2','{\"name\":\"after cancel\"}'::jsonb)", (cycle_id,))
+            with self.assertRaises(errors.ObjectNotInPrerequisiteState):
+                conn.execute("DELETE FROM planning_private.plan_change_events WHERE entity_id=%s", (cycle_id,))
+            self.assertEqual(conn.execute("SELECT count(*) FROM planning_private.plan_change_events WHERE entity_id=%s", (cycle_id,)).fetchone()[0], 2)
+
+
 class PlanningRestore(unittest.TestCase):
     """Run only after the workflow restores the synthetic custom-format dump."""
     def test_restored_data_constraints_and_acl(self):
@@ -265,7 +431,7 @@ class PlanningRestore(unittest.TestCase):
             """).fetchall()}
             self.assertEqual(restored_tables, source_tables)
             self.assertEqual(restored_tables, {"plan_cycles", "plan_weeks", "planned_sessions", "training_goals",
-                                               "goal_milestones", "session_activity_links", "plan_change_events"})
+                                               "goal_milestones", "session_activity_links", "plan_change_events", "api_state"})
 
             def constraints(conn):
                 return conn.execute("""
@@ -325,9 +491,15 @@ class PlanningRestore(unittest.TestCase):
                 WHERE n.nspname='planning_private' AND c.relkind='r'
                   AND c.relrowsecurity AND c.relforcerowsecurity
             """).fetchone()[0]
-            self.assertEqual(secured, 7)
+            self.assertEqual(secured, 8)
             self.assertFalse(restored.execute(
                 "SELECT has_schema_privilege('authenticated','planning_private','USAGE')"
+            ).fetchone()[0])
+            self.assertTrue(restored.execute(
+                "SELECT has_function_privilege('authenticated','public.planning_create_cycle_v1(text,date,date,text,text)','EXECUTE')"
+            ).fetchone()[0])
+            self.assertFalse(restored.execute(
+                "SELECT has_function_privilege('anon','public.planning_create_cycle_v1(text,date,date,text,text)','EXECUTE')"
             ).fetchone()[0])
             with self.assertRaises(errors.CheckViolation):
                 restored.execute("""INSERT INTO planning_private.training_goals

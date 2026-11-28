@@ -1,4 +1,4 @@
-name: V4.1 Planning SQL Gate B
+name: V4.1 Planning PostgreSQL contract
 
 on:
   push:
@@ -11,9 +11,11 @@ on:
       - supabase/migrations/0034_data_intelligence.sql
       - supabase/migrations/0035_staging_reliability.sql
       - supabase/migrations/0036_v41_planning.sql
+      - supabase/migrations/0037_v41_planning_rpc.sql
       - tests/sql/auth_stub.sql
       - tests/sql/v41_planning_contract.py
       - tests/test_v41_sql_workflow.py
+      - tests/test_v41_planning_rpc_contract.py
   workflow_dispatch:
 
 permissions:
@@ -25,7 +27,7 @@ concurrency:
 
 jobs:
   planning-sql-gate:
-    name: PostgreSQL 17.6 · migration, ACL, rollback and restore
+    name: PostgreSQL 17.6 · planning schema and RPC contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -60,7 +62,9 @@ jobs:
 
       - name: Check workflow isolation and required gates
         id: workflow-guard
-        run: python tests/test_v41_sql_workflow.py
+        run: |
+          python tests/test_v41_sql_workflow.py
+          python tests/test_v41_planning_rpc_contract.py
 
       - name: Install pinned PostgreSQL test driver
         id: install
@@ -87,11 +91,11 @@ jobs:
           done
           printf 'Target check: PostgreSQL image fixed, cluster identity captured, four named databases created empty.\n'
 
-      - name: Apply baseline and test migration, ACL, RLS, constraints and rollback
+      - name: Apply baseline and test migration, RPC ACL, RLS, persistence and rollback
         id: migration-tests
         env:
           PYTHONPATH: tests/sql
-        run: python -m unittest v41_planning_contract.PlanningSchema -v
+        run: python -m unittest v41_planning_contract.PlanningSchema v41_planning_contract.PlanningRPC -v
 
       - name: Back up, restore and verify synthetic schema and data
         id: restore-tests
@@ -133,7 +137,7 @@ jobs:
           CLEANUP: ${{ steps.cleanup.outcome }}
         run: |
           {
-            echo '# V4.1 SQL Gate B'
+            echo '# V4.1 Planning SQL and RPC contract gate'
             echo "Commit testato: ${GITHUB_SHA}"
             echo 'Runtime: ubuntu-24.04, Python 3.12.10, PostgreSQL 17.6; database usa-e-getta.'
             echo 'Nessun secret, progetto Supabase, servizio Garmin o NAS configurato.'
@@ -143,7 +147,7 @@ jobs:
             echo "| Isolamento workflow | $WORKFLOW_GUARD |"
             echo "| Driver fissato | $INSTALL |"
             echo "| Identità loopback/cluster e database vuoti | $TARGET |"
-            echo "| Fresh, upgrade, ACL/RLS, vincoli e rollback atomico | $MIGRATION_TESTS |"
+            echo "| Fresh, upgrade, RPC, ACL/RLS, persistenza e rollback atomico | $MIGRATION_TESTS |"
             echo "| pg_dump, pg_restore, dati e vincoli ripristinati | $RESTORE_TESTS |"
             echo "| Cleanup esplicito (servizio effimero comunque eliminato dal runner) | $CLEANUP |"
           } >> "$GITHUB_STEP_SUMMARY"

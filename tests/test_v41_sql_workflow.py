@@ -33,9 +33,11 @@ class WorkflowSafety(unittest.TestCase):
             "supabase/migrations/0034_data_intelligence.sql",
             "supabase/migrations/0035_staging_reliability.sql",
             "supabase/migrations/0036_v41_planning.sql",
+            "supabase/migrations/0037_v41_planning_rpc.sql",
             "tests/sql/auth_stub.sql",
             "tests/sql/v41_planning_contract.py",
             "tests/test_v41_sql_workflow.py",
+            "tests/test_v41_planning_rpc_contract.py",
         }
         actual_paths = set(re.findall(r"(?m)^      - (.+)$", paths.group(1)))
         self.assertEqual(actual_paths, expected_paths)
@@ -84,7 +86,7 @@ class WorkflowSafety(unittest.TestCase):
         for required in (
             "gch_v41_planning_fresh", "gch_v41_planning_upgrade", "gch_v41_planning_atomic",
             "gch_v41_planning_restore", "pg_dump", "pg_restore", "--exit-on-error",
-            "PlanningSchema", "PlanningRestore", "if: always()", "${GITHUB_SHA}", "$GITHUB_STEP_SUMMARY",
+            "PlanningSchema", "PlanningRPC", "PlanningRestore", "if: always()", "${GITHUB_SHA}", "$GITHUB_STEP_SUMMARY",
         ):
             self.assertIn(required, self.source)
         self.assertRegex(self.source, r"(?m)^\s+id: restore-tests\s*$")

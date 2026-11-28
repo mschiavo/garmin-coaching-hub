@@ -1,6 +1,6 @@
 # V4.1 — Proposta contratti API Planning & Goals
 
-**Stato:** specifica proposta, nessuna RPC implementata.
+**Stato:** contratti Planning implementati in `0037_v41_planning_rpc.sql`; validazione PostgreSQL/Auth/PostgREST effettiva ancora richiesta. I contratti Goals e activity-link restano proposte future.
 
 ## Convenzioni
 
@@ -17,7 +17,7 @@ type DecimalString = string; // PostgreSQL NUMERIC
 type Revision = string; // BIGINT
 type Page<T> = { revision: Revision; count: number; has_more: boolean; next_cursor: string|null; rows: T[] };
 type PlanCycle = { id:string; name:string; start_date:CivilDate; end_date:CivilDate; timezone:string; status:string; revision:Revision };
-type PlannedSession = { id:string; cycle_id:string|null; week_start:CivilDate|null; session_date:CivilDate; sport:string; session_type:string; title:string; target_distance_m:DecimalString|null; target_duration_s:DecimalString|null; status:'planned'|'completed'|'skipped'|'cancelled'; completion_kind:'manual'|'verified'|null; revision:Revision };
+type PlannedSession = { id:string; cycle_id:string|null; week_start:CivilDate|null; session_date:CivilDate; sport:string; session_type:string; title:string; description:string|null; notes:string|null; target_distance_m:DecimalString|null; target_duration_s:DecimalString|null; status:'planned'|'completed'|'skipped'|'cancelled'; completion_kind:'manual'|'verified'|null; revision:Revision };
 type Goal = { id:string; scope:'week'|'month'|'block'|'race'; metric:'distance'|'duration'|'sessions'|'race_time'; target:DecimalString; unit:'m'|'s'|'sessions'; direction:'at_least'|'lower_is_better'; start_date:CivilDate; end_date:CivilDate; status:string; revision:Revision };
 ```
 
@@ -35,7 +35,7 @@ Cataloghi sport/tipo/intensità da definire; note bounded/plain text. Sono esemp
 | `planning_list_sessions_v1` | date range/cycle/status/page | ordine date/ordinal/id, bounded |
 | `planning_create_session_v1` | cycle/week, sola data, sport/tipo, target, note | record validato e coerente; API V1 non accetta ora locale |
 | `planning_update_session_v1` | id/revision/patch | optimistic update |
-| `planning_reschedule_session_v1` | id/revision/nuova data/ora | evento history, no activity mutation |
+| `planning_reschedule_session_v1` | id/revision/nuova data civile | evento history, no activity mutation; nessun orario locale nell'API V1 |
 | `planning_set_session_status_v1` | id/revision/status/origine | transition validate, cancelled ≠ skipped |
 | `goals_list_v1` | scope/range/status/page | goal typed, no progresso cache |
 | `goals_create_v1` | metric/target/unit/direction/period/zone | target validato |
@@ -44,6 +44,14 @@ Cataloghi sport/tipo/intensità da definire; note bounded/plain text. Sono esemp
 | `goals_get_progress_v1` | goal/as-of/source revision | actual/target/gap/coverage/samples/formula version; null se non valido |
 | `planning_link_activity_v1` | session, bigint activity string, revision, explicit confirmation | link manuale ad activity esistente; una activity può appartenere a una sola sessione attiva, sessione multi-activity consentita |
 | `planning_unlink_activity_v1` | session/activity/revision | disattiva link (unlinked_at), registra evento; non elimina il record storico |
+
+### Implementazione Planning V1
+
+Le firme PostgREST sono definite in `supabase/migrations/0037_v41_planning_rpc.sql` e tutte restituiscono DTO JSON. Le mutazioni ciclo usano `p_expected_revision` come testo decimale e `p_patch` JSON con soli campi ammessi. Le mutazioni seduta seguono lo stesso controllo; la cancellazione è `planning_set_session_status_v1(..., p_status='cancelled', p_origin='manual')`. `planning_get_session_v1` completa la lettura della singola seduta prevista dal contratto generale. `planning_get_cycle_v1` restituisce al massimo 100 sedute annidate e `sessions_has_more`; la lettura completa/paginata usa `planning_list_sessions_v1`.
+
+Le funzioni sono `SECURITY DEFINER`, `search_path=''`, negano l'accesso prima del lookup se `auth.uid()` manca o non è in `dashboard_private.allowed_users`, e non concedono accesso diretto a `planning_private`. La revisione globale serializzata in `planning_private.api_state` lega le pagine keyset ai filtri e invalida i cursori dopo qualsiasi scrittura RPC; la revisione per entità resta monotona. Le modifiche registrano soltanto tipo, entità, revisione e autore nel log append-only, senza copiare note o payload. La sessione può essere marcata completata solo manualmente; questa V1 non dichiara verifiche Garmin.
+
+Le firme, la sintassi SQL e l'integrazione con il vero Auth/PostgREST non sono dichiarate validate finché i workflow effimeri PostgreSQL e Supabase non terminano con successo sul commit interessato.
 
 Batch solo atomiche/bounded; consolidamento funzioni ammesso dopo profiling se invarianti uguali.
 
